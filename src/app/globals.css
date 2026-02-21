@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 214 15% 10%;
+    --foreground: 210 20% 98%;
+    --card: 214 18% 12%;
+    --card-foreground: 210 20% 98%;
+    --popover: 214 18% 12%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 211 83% 59%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 214 15% 20%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 214 15% 18%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 193 47% 81%;
+    --accent-foreground: 214 15% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 15% 20%;
+    --input: 214 15% 20%;
+    --ring: 211 83% 59%;
+    --chart-1: 211 83% 59%;
+    --chart-2: 193 47% 81%;
+    --chart-3: 0 84.2% 60.2%;
+    --chart-4: 142 71% 45%;
+    --chart-5: 47 95% 57%;
+    --radius: 1rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+}
+
+.glow-anomaly {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+.network-node {
+  transition: all 0.3s ease;
+}
+
+.network-node:hover {
+  filter: brightness(1.5);
+  cursor: pointer;
+}
