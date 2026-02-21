@@ -11,9 +11,9 @@ import { ProbabilityChart } from '@/components/dashboard/ProbabilityChart';
 import { RiskMeter } from '@/components/dashboard/RiskMeter';
 import { AnomalyBreakdown } from '@/components/dashboard/AnomalyBreakdown';
 import { TraderNetworkGraph } from '@/components/dashboard/TraderNetworkGraph';
-import { TradeTable } from '@/components/dashboard/TradeTable';
 import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TraderIntelligence } from '@/components/dashboard/TraderIntelligence';
+import { LiveKalshiTrades } from '@/components/dashboard/LiveKalshiTrades';
 import { Input } from '@/components/ui/input';
 
 export default function LeakLensDashboard() {
@@ -214,7 +214,10 @@ export default function LeakLensDashboard() {
             </TabsContent>
 
             <TabsContent value="activity" className="mt-0 animate-in fade-in duration-500">
-              <TradeTable trades={activeContract.trades} onTraderClick={handleTraderClick} announcementTime={activeContract.announcementTime} />
+              <LiveKalshiTrades
+                ticker={activeContract.kalshiTicker}
+                marketName={activeContract.kalshiTicker ? activeContract.name : undefined}
+              />
             </TabsContent>
 
             <TabsContent value="overview" className="mt-0 animate-in fade-in duration-500">

@@ -62,6 +62,7 @@ export interface Contract extends RiskAnalysis {
   id: string;
   name: string;
   description: string;
+  kalshiTicker: string;
   announcementTime: number;
   currentPrice: number;
   preEventVolumePct: number;
@@ -81,12 +82,19 @@ export const NAMED_TRADERS = [
   'Trader_Zenith'
 ];
 
+const CONTRACT_KALSHI_TICKERS = [
+  '',
+  '',
+  '',
+  '',
+];
+
 const CONTRACT_TEMPLATES = [
   {
     id: 'FED-MAR-2026',
     name: 'Fed Rate Cut (March 2026)',
     description: 'Will the Fed cut rates in March 2026?',
-    announcementOffset: 15 * 60000, // 15 mins from now
+    announcementOffset: 15 * 60000,
   },
   {
     id: 'CPI-APR-2026',
@@ -181,11 +189,13 @@ export function generateSeededData(leaked: boolean = false, templateIndex: numbe
 
   const analysis = analyzeData(data, leaked);
 
+  const kalshiTicker = CONTRACT_KALSHI_TICKERS[templateIndex] ?? '';
   return {
     ...analysis,
     id: template.id,
     name: template.name,
     description: template.description,
+    kalshiTicker,
     announcementTime,
     currentPrice: currentProb,
     preEventVolumePct: Math.round((trades.filter(t => t.isPreEvent).reduce((a, b) => a + b.size, 0) / trades.reduce((a, b) => a + b.size, 1)) * 100),

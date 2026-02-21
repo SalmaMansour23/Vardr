@@ -39,6 +39,11 @@ next-env.d.ts
 
 .genkit/*
 .env*
+key.txt
+
+# IDE / editor
+.claude/
+.cursor/
 
 # firebase
 firebase-debug.log
