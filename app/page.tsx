@@ -1,8 +1,9 @@
 "use client"
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Shield, Zap, AlertTriangle, Clock, Activity, LayoutDashboard, ListFilter, UserCheck, Globe, X, MessageSquare, TrendingUp, Search } from 'lucide-react';
+import { Shield, Zap, AlertTriangle, Clock, Activity, LayoutDashboard, ListFilter, UserCheck, Globe, X, MessageSquare, TrendingUp, Search, Loader2, Brain, Network } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useSignalTrace } from '../src/hooks/use-signal-trace';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -14,13 +15,47 @@ import { TraderNetworkGraph } from '@/components/dashboard/TraderNetworkGraph';
 import { TradeTable } from '@/components/dashboard/TradeTable';
 import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TraderIntelligence } from '@/components/dashboard/TraderIntelligence';
+import { SocialSignalPanel } from '@/components/dashboard/SocialSignalPanel';
+import { TimelineRiskPanel } from '@/components/dashboard/TimelineRiskPanel';
+import { CausalGraphVisualizer } from '@/components/dashboard/CausalGraphVisualizer';
+import { HighRiskAccountsPanel } from '@/components/dashboard/HighRiskAccountsPanel';
 import { Input } from '@/components/ui/input';
+import { fetchPublicSignals } from '@/lib/fetchPublicSignals';
 
 export default function LeakLensDashboard() {
   const [isLeaked, setIsLeaked] = useState(false);
   const [activeContractIndex, setActiveContractIndex] = useState(0);
   const [allContracts, setAllContracts] = useState<Contract[]>([]);
   const [selectedTrader, setSelectedTrader] = useState<TraderProfile | null>(null);
+  const [runAnalysis, setRunAnalysis] = useState(false);
+  
+  // Advanced AI Analysis States
+  const [causalGraph, setCausalGraph] = useState<any>(null);
+  const [crossEventAnalysis, setCrossEventAnalysis] = useState<any>(null);
+  const [adversarialSim, setAdversarialSim] = useState<any>(null);
+  const [expertPanel, setExpertPanel] = useState<any>(null);
+  const [advancedLoading, setAdvancedLoading] = useState(false);
+
+  // Signal trace data for leak simulation
+  const signalTraceData = useMemo(() => {
+    const drift_time = "2026-04-10T08:23:00";
+    const announcement_time = "2026-04-10T08:30:00";
+    
+    // Generate realistic mock posts using fetchPublicSignals
+    const publicSignals = runAnalysis ? fetchPublicSignals('cpi', drift_time, 15) : [];
+    const posts = publicSignals.map(signal => ({
+      text: signal.text,
+      timestamp: signal.timestamp
+    }));
+    
+    return {
+      drift_time,
+      announcement_time,
+      posts
+    };
+  }, [runAnalysis]);
+
+  const { classifications, timelineResult, loading, error } = useSignalTrace(signalTraceData);
 
   useEffect(() => {
     const contracts = [
@@ -34,8 +69,119 @@ export default function LeakLensDashboard() {
 
   const activeContract = useMemo(() => allContracts[activeContractIndex], [allContracts, activeContractIndex]);
 
+  // Calculate adjusted risk score based on timeline analysis
+  const adjustedRiskScore = useMemo(() => {
+    if (!activeContract) return 0;
+    
+    let score = activeContract.riskScore;
+    
+    // Add points based on AI timeline analysis
+    if (timelineResult && runAnalysis) {
+      if (timelineResult.risk_level === 'High') {
+        score += 20;
+      } else if (timelineResult.risk_level === 'Medium') {
+        score += 10;
+      }
+    }
+    
+    // Cap at 100
+    return Math.min(score, 100);
+  }, [activeContract, timelineResult, runAnalysis]);
+
+  // Run advanced AI analysis when basic analysis completes
+  useEffect(() => {
+    if (!runAnalysis || !timelineResult || loading) return;
+    
+    const runAdvancedAnalysis = async () => {
+      setAdvancedLoading(true);
+      
+      try {
+        // Run all advanced analyses in parallel
+        const [causalRes, crossRes, adversarialRes, expertRes] = await Promise.all([
+          // Causal Graph Generation
+          fetch('/api/generate-causal-graph', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              narratives: classifications.map(c => c.reasoning).filter(Boolean),
+              market_events: [`Market drift at ${signalTraceData.drift_time}`, 'CPI prediction market volatility'],
+              posts: signalTraceData.posts.map(p => p.text)
+            })
+          }),
+          
+          // Cross-Event Analysis
+          fetch('/api/cross-event-analysis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              primary_event: { type: 'CPI Release', drift_time: signalTraceData.drift_time },
+              related_events: [
+                { type: 'Fed Rate Decision', date: '2026-04-15' },
+                { type: 'Treasury Bond Auction', date: '2026-04-09' }
+              ],
+              posts: signalTraceData.posts
+            })
+          }),
+          
+          // Adversarial Simulation
+          fetch('/api/adversarial-simulation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              market_structure: { type: 'prediction_market', liquidity: 'medium' },
+              information: 'Early CPI data showing higher than expected inflation',
+              actual_pattern: {
+                posts: signalTraceData.posts.map(p => ({ text: p.text, timestamp: p.timestamp })),
+                drift_time: signalTraceData.drift_time
+              }
+            })
+          }),
+          
+          // Expert Panel Ensemble
+          fetch('/api/expert-panel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              posts: signalTraceData.posts,
+              drift_time: signalTraceData.drift_time,
+              announcement_time: signalTraceData.announcement_time,
+              market_movement: 'Probability increased from 45% to 78%'
+            })
+          })
+        ]);
+        
+        const [causalData, crossData, adversarialData, expertData] = await Promise.all([
+          causalRes.json(),
+          crossRes.json(),
+          adversarialRes.json(),
+          expertRes.json()
+        ]);
+        
+        setCausalGraph(causalData.result || causalData);
+        setCrossEventAnalysis(crossData.result || crossData);
+        setAdversarialSim(adversarialData.result || adversarialData);
+        setExpertPanel(expertData.result || expertData);
+        
+      } catch (err) {
+        console.error('Advanced analysis error:', err);
+      } finally {
+        setAdvancedLoading(false);
+      }
+    };
+    
+    runAdvancedAnalysis();
+  }, [runAnalysis, timelineResult, loading, classifications, signalTraceData]);
+
   const handleSimulateLeak = () => {
     setIsLeaked(!isLeaked);
+    setRunAnalysis(!runAnalysis);
+    // Reset advanced analysis
+    if (runAnalysis) {
+      setCausalGraph(null);
+      setCrossEventAnalysis(null);
+      setAdversarialSim(null);
+      setExpertPanel(null);
+    }
   };
 
   const handleTraderClick = (traderId: string) => {
@@ -69,9 +215,9 @@ export default function LeakLensDashboard() {
             <div className="hidden md:flex flex-col items-end">
               <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Global Integrity Score</span>
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${activeContract.riskScore > 60 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
-                <span className={`text-sm font-bold uppercase ${activeContract.riskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
-                  {activeContract.riskScore > 60 ? 'Critical Asymmetry' : 'Market Integrity High'}
+                <div className={`w-2 h-2 rounded-full ${adjustedRiskScore > 60 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                <span className={`text-sm font-bold uppercase ${adjustedRiskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
+                  {adjustedRiskScore > 60 ? 'Critical Asymmetry' : 'Market Integrity High'}
                 </span>
               </div>
             </div>
@@ -115,6 +261,9 @@ export default function LeakLensDashboard() {
               <TabsList className="bg-card/30 border border-border/50 p-1 rounded-xl">
                 <TabsTrigger value="dashboard" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
                   <LayoutDashboard size={14} /> Intelligence
+                </TabsTrigger>
+                <TabsTrigger value="advanced" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                  <Brain size={14} /> Advanced AI
                 </TabsTrigger>
                 <TabsTrigger value="activity" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
                   <ListFilter size={14} /> Market Activity
@@ -180,15 +329,53 @@ export default function LeakLensDashboard() {
 
                 {/* Right Column (Risk Breakdown) */}
                 <div className="lg:col-span-4 space-y-8">
+                  {/* AI-Powered Signal Analysis */}
+                  {runAnalysis && (
+                    <>
+                      {loading ? (
+                        <Card className="border-primary/30 bg-primary/5 rounded-2xl overflow-hidden shadow-2xl">
+                          <CardContent className="p-8 flex flex-col items-center justify-center gap-4">
+                            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                            <span className="text-xs text-muted-foreground">Running AI analysis...</span>
+                          </CardContent>
+                        </Card>
+                      ) : error ? (
+                        <Card className="border-destructive/30 bg-destructive/5 rounded-2xl">
+                          <CardContent className="p-6">
+                            <div className="flex items-start gap-3">
+                              <AlertTriangle className="text-destructive shrink-0" size={20} />
+                              <div>
+                                <h4 className="text-xs font-bold uppercase tracking-tighter text-destructive mb-2">Analysis Error</h4>
+                                <p className="text-[10px] text-muted-foreground leading-relaxed">{error}</p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ) : timelineResult ? (
+                        <>
+                          <TimelineRiskPanel 
+                            timelineResult={timelineResult} 
+                            drift_time={signalTraceData.drift_time}
+                            announcement_time={signalTraceData.announcement_time}
+                          />
+                          <SocialSignalPanel 
+                            classifications={classifications}
+                            posts={signalTraceData.posts}
+                          />
+                        </>
+                      ) : null}
+                    </>
+                  )}
+
                   <Card className="border-border/50 bg-card/30 rounded-2xl overflow-hidden shadow-2xl">
                     <CardContent className="p-8 space-y-8">
-                      <RiskMeter score={activeContract.riskScore} />
+                      <RiskMeter score={adjustedRiskScore} />
                       <div className="h-px bg-border/50 w-full" />
                       <AnomalyBreakdown analysis={activeContract} />
                     </CardContent>
                   </Card>
 
-                  {activeContract.riskScore > 60 && (
+                  {adjustedRiskScore > 60 && (
                     <Card className="border-destructive/30 bg-destructive/5 rounded-2xl border-dashed">
                       <CardContent className="p-6 flex items-start gap-4">
                         <AlertTriangle className="text-destructive shrink-0" size={20} />
@@ -210,6 +397,182 @@ export default function LeakLensDashboard() {
                     </Card>
                   )}
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="advanced" className="mt-0 animate-in fade-in duration-500">
+              <div className="space-y-8">
+                {/* High-Risk Accounts Panel - Always Visible */}
+                <HighRiskAccountsPanel />
+                
+                {!runAnalysis ? (
+                  <Card className="border-border/50 bg-card/30 rounded-2xl">
+                    <CardContent className="p-12 flex flex-col items-center justify-center gap-4">
+                      <Brain className="h-16 w-16 text-muted-foreground/30" />
+                      <h3 className="text-lg font-bold text-muted-foreground">Advanced AI Analysis Inactive</h3>
+                      <p className="text-sm text-muted-foreground/70 text-center max-w-md">
+                        Click "Simulate Information Leak" to run ensemble AI analysis including causal graphs, 
+                        cross-event correlation, adversarial simulation, and expert panel consensus.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-8">
+                    {/* Expert Panel Analysis */}
+                    {expertPanel && (
+                    <Card className="border-primary/30 bg-primary/5 rounded-2xl overflow-hidden shadow-2xl">
+                      <div className="p-4 border-b border-primary/20">
+                        <h2 className="text-sm font-bold uppercase tracking-widest text-primary flex items-center gap-2">
+                          <UserCheck size={16} /> Expert Panel Consensus
+                        </h2>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Multi-expert ensemble AI analysis from {expertPanel.experts?.length || 3} specialized analysts
+                        </p>
+                      </div>
+                      <CardContent className="p-6 space-y-4">
+                        {advancedLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <span className="ml-3 text-xs text-muted-foreground">Consulting expert panel...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              {expertPanel.experts?.map((expert: any, idx: number) => (
+                                <Card key={idx} className="bg-muted/20 border-border/30">
+                                  <CardContent className="p-4 space-y-2">
+                                    <div className="text-[10px] font-bold uppercase text-primary">{expert.role || `Expert ${idx + 1}`}</div>
+                                    <div className="text-[11px] leading-relaxed text-muted-foreground">
+                                      {expert.analysis?.substring(0, 150)}...
+                                    </div>
+                                    <Badge variant="outline" className="text-[8px]">
+                                      Risk: {expert.risk_score || 'N/A'}
+                                    </Badge>
+                                  </CardContent>
+                                </Card>
+                              )) || <p className="text-xs text-muted-foreground">Expert reports loading...</p>}
+                            </div>
+                            <div className="pt-4 border-t border-border/30">
+                              <div className="text-[10px] text-muted-foreground uppercase font-bold mb-2">Synthesized Assessment</div>
+                              <p className="text-sm leading-relaxed">{expertPanel.synthesis?.final_assessment || expertPanel.synthesis || 'Processing...'}</p>
+                              <div className="mt-3 flex items-center gap-4">
+                                <Badge variant={expertPanel.consensus_risk_score > 70 ? "destructive" : "default"} className="text-[10px]">
+                                  Consensus Risk: {expertPanel.consensus_risk_score || expertPanel.risk_score || 'N/A'}/100
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px]">
+                                  Confidence: {expertPanel.confidence_level || expertPanel.confidence || 'Medium'}
+                                </Badge>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Causal Graph Visualization */}
+                  {causalGraph && (
+                    <Card className="border-border/50 bg-card/30 rounded-2xl overflow-hidden shadow-2xl">
+                      <div className="p-4 border-b border-border/50">
+                        <h2 className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                          <Network size={16} className="text-primary" /> Causal Network Graph
+                        </h2>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          AI-generated causal relationships between narratives, market events, and information flow
+                        </p>
+                      </div>
+                      <CardContent className="p-6">
+                        {advancedLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <span className="ml-3 text-xs text-muted-foreground">Generating causal graph...</span>
+                          </div>
+                        ) : (
+                          <CausalGraphVisualizer 
+                            nodes={causalGraph.nodes || []} 
+                            edges={causalGraph.edges || []} 
+                          />
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Cross-Event and Adversarial Analysis */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Cross-Event Analysis */}
+                    {crossEventAnalysis && (
+                      <Card className="border-border/50 bg-card/30 rounded-2xl overflow-hidden shadow-xl">
+                        <div className="p-4 border-b border-border/50">
+                          <h2 className="text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                            <TrendingUp size={14} className="text-accent" /> Cross-Event Correlation
+                          </h2>
+                        </div>
+                        <CardContent className="p-6 space-y-3">
+                          {advancedLoading ? (
+                            <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" />
+                          ) : (
+                            <>
+                              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                {crossEventAnalysis.analysis || crossEventAnalysis.correlation_analysis}
+                              </p>
+                              {crossEventAnalysis.linked_events?.map((event: any, idx: number) => (
+                                <div key={idx} className="p-3 rounded-lg bg-muted/20 border border-border/30">
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-[10px] font-bold">{event.event_type}</span>
+                                    <Badge variant="outline" className="text-[8px]">
+                                      Strength: {Math.round((event.relationship_strength || 0) * 100)}%
+                                    </Badge>
+                                  </div>
+                                  <p className="text-[9px] text-muted-foreground">{event.reasoning}</p>
+                                </div>
+                              ))}
+                            </>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Adversarial Simulation */}
+                    {adversarialSim && (
+                      <Card className="border-destructive/30 bg-destructive/5 rounded-2xl overflow-hidden shadow-xl">
+                        <div className="p-4 border-b border-destructive/20">
+                          <h2 className="text-xs font-bold uppercase tracking-widest text-destructive flex items-center gap-2">
+                            <AlertTriangle size={14} /> Adversarial Strategy
+                          </h2>
+                        </div>
+                        <CardContent className="p-6 space-y-3">
+                          {advancedLoading ? (
+                            <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" />
+                          ) : (
+                            <>
+                              <div>
+                                <div className="text-[10px] text-muted-foreground uppercase font-bold mb-1">Optimal Attack Vector</div>
+                                <p className="text-[11px] leading-relaxed">{adversarialSim.simulated_strategy?.strategy || adversarialSim.strategy}</p>
+                              </div>
+                              {adversarialSim.similarity_score !== undefined && (
+                                <div className="pt-3 border-t border-border/30">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-muted-foreground uppercase font-bold">Pattern Match</span>
+                                    <Badge variant={adversarialSim.similarity_score > 0.7 ? "destructive" : "secondary"} className="text-[9px]">
+                                      {Math.round((adversarialSim.similarity_score || 0) * 100)}% Similar
+                                    </Badge>
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground mt-2">{adversarialSim.comparison_analysis || 'Comparing observed behavior to optimal adversarial strategy...'}</p>
+                                </div>
+                              )}
+                              {adversarialSim.risk_adjustment && (
+                                <Badge variant="destructive" className="text-[9px]">
+                                  Risk Adjustment: +{adversarialSim.risk_adjustment}
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                  </div>
+                )}
               </div>
             </TabsContent>
 
