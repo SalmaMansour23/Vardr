@@ -66,7 +66,7 @@ Determine:
 2. The severity of information asymmetry risk
 3. Whether this suggests potential insider information leakage
 
-Return JSON only in this exact format:
+Return JSON only in this exact format. Do not include markdown, code fences, or any extra text. Use double quotes for all keys and string values.
 {
   "public_signal_precedes_drift": boolean,
   "risk_level": "Low | Medium | High",
@@ -134,13 +134,27 @@ Return JSON only in this exact format:
         cleanedText = jsonMatch[0];
       }
       
+      // Normalize common JSON issues from LLMs before parsing
+      cleanedText = cleanedText
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/\s*,\s*}/g, '}')
+        .replace(/\s*,\s*]/g, ']');
+
       const parsedResult = JSON.parse(cleanedText);
+
+      if (typeof parsedResult.risk_level === 'string') {
+        const normalized = parsedResult.risk_level.trim().toLowerCase();
+        if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+          parsedResult.risk_level = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+        }
+      }
 
       // Validate the structure
       if (
         typeof parsedResult.public_signal_precedes_drift !== 'boolean' ||
         !parsedResult.risk_level ||
-        !parsedResult.explanation
+        typeof parsedResult.explanation !== 'string'
       ) {
         console.warn('Invalid response structure:', parsedResult);
         return NextResponse.json(
