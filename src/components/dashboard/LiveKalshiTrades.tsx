@@ -36,12 +36,6 @@ function fmtTime(iso?: string) {
   });
 }
 
-function shortTicker(ticker?: string) {
-  if (!ticker) return "—";
-  const parts = ticker.split("-");
-  return parts.length > 3 ? parts.slice(0, 3).join("-") + "…" : ticker;
-}
-
 function tradePrice(t: KalshiPublicTrade): number {
   return t.taker_side === "yes" ? (t.yes_price ?? 0) : (t.no_price ?? 0);
 }
@@ -227,7 +221,7 @@ export function LiveKalshiTrades({ ticker, marketName }: LiveKalshiTradesProps) 
                 Time
               </TableHead>
               <TableHead className="text-[10px] font-bold uppercase">
-                Market
+                Trade ID
               </TableHead>
               <TableHead className="text-[10px] font-bold uppercase text-center">
                 Side
@@ -269,10 +263,10 @@ export function LiveKalshiTrades({ ticker, marketName }: LiveKalshiTradesProps) 
                     {fmtTime(trade.created_time)}
                   </TableCell>
                   <TableCell
-                    className="text-[11px] font-medium truncate max-w-[200px]"
-                    title={trade.ticker}
+                    className="text-[11px] font-mono truncate max-w-[200px]"
+                    title={trade.trade_id}
                   >
-                    {shortTicker(trade.ticker)}
+                    {trade.trade_id}
                   </TableCell>
                   <TableCell className="text-center">
                     <span
