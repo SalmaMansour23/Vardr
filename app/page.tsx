@@ -57,7 +57,7 @@ export default function LeakLensDashboard() {
               <Shield className="text-primary w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-bold font-headline tracking-tight">LeakLens <span className="text-primary text-xs ml-1 bg-primary/10 px-1.5 py-0.5 rounded">v3.0</span></h1>
+              <h1 className="text-xl font-bold font-headline tracking-tight">DriftX <span className="text-primary text-xs ml-1 bg-primary/10 px-1.5 py-0.5 rounded">v3.0</span></h1>
               <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-bold uppercase">
                 <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-primary">ID: {activeContract.id}</span>
                 <span className="flex items-center gap-1"><Clock size={12} /> Live Monitoring</span>
@@ -245,7 +245,7 @@ export default function LeakLensDashboard() {
       <footer className="mt-auto border-t border-border bg-card/20 py-10 px-6">
         <div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <p className="text-[10px] text-muted-foreground/60 max-w-2xl leading-relaxed uppercase tracking-widest font-bold">
-            LeakLens models structural information asymmetry risk using statistical drift detection, behavioral sequencing analysis, cross-event correlation modeling, and sentiment divergence monitoring.
+            DriftX models structural information asymmetry risk using statistical drift detection, behavioral sequencing analysis, cross-event correlation modeling, and sentiment divergence monitoring.
           </p>
           <div className="flex gap-8 text-[10px] text-muted-foreground/40 font-bold uppercase tracking-widest">
             <span className="hover:text-primary transition-colors cursor-pointer">Security Protocol</span>

@@ -16,7 +16,7 @@ import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TraderIntelligence } from '@/components/dashboard/TraderIntelligence';
 import { Input } from '@/components/ui/input';
 
-export default function DriftXDashboard() {
+export default function LeakLensDashboard() {
   const [isLeaked, setIsLeaked] = useState(false);
   const [activeContractIndex, setActiveContractIndex] = useState(0);
   const [allContracts, setAllContracts] = useState<Contract[]>([]);
@@ -245,7 +245,7 @@ export default function DriftXDashboard() {
       <footer className="mt-auto border-t border-border bg-card/20 py-10 px-6">
         <div className="container mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <p className="text-[10px] text-muted-foreground/60 max-w-2xl leading-relaxed uppercase tracking-widest font-bold">
-            LeakLens models structural information asymmetry risk using statistical drift detection, behavioral sequencing analysis, cross-event correlation modeling, and sentiment divergence monitoring.
+            DriftX models structural information asymmetry risk using statistical drift detection, behavioral sequencing analysis, cross-event correlation modeling, and sentiment divergence monitoring.
           </p>
           <div className="flex gap-8 text-[10px] text-muted-foreground/40 font-bold uppercase tracking-widest">
             <span className="hover:text-primary transition-colors cursor-pointer">Security Protocol</span>
