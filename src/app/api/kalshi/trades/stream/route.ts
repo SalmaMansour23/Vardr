@@ -1,21 +1,15 @@
 import { NextRequest } from "next/server";
+import { getCachedTrades, setCachedTrades } from "@/lib/kalshi-trades-cache";
+import type { CachedKalshiTrade } from "@/lib/kalshi-trades-cache";
 
 export const dynamic = "force-dynamic";
 
 const KALSHI_TRADES_URL = "https://api.elections.kalshi.com/trade-api/v2/markets/trades";
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 500;
 const TRADES_PER_POLL = 100;
 const MAX_SEEN_IDS = 5000;
 
-interface KalshiTrade {
-  trade_id: string;
-  ticker: string;
-  yes_price?: number;
-  no_price?: number;
-  count?: number;
-  taker_side?: "yes" | "no";
-  created_time?: string;
-}
+interface KalshiTrade extends CachedKalshiTrade {}
 
 interface KalshiTradesResponse {
   trades?: KalshiTrade[];
@@ -36,6 +30,16 @@ export async function GET(request: NextRequest) {
       const seenOrder: string[] = [];
       let firstRun = true;
 
+      const encoder = new TextEncoder();
+      controller.enqueue(encoder.encode(": connected\n\n"));
+
+      const cached = getCachedTrades(ticker);
+      if (cached && cached.length > 0) {
+        for (const t of cached) {
+          if (t.trade_id) controller.enqueue(encoder.encode(encodeSSE(t)));
+        }
+      }
+
       const poll = async () => {
         try {
           const url = new URL(KALSHI_TRADES_URL);
@@ -54,6 +58,8 @@ export async function GET(request: NextRequest) {
           const body = (await response.json()) as KalshiTradesResponse;
           const trades = body.trades ?? [];
 
+          setCachedTrades(ticker, trades);
+
           if (firstRun) {
             firstRun = false;
             trades.forEach((t) => {
@@ -66,6 +72,11 @@ export async function GET(request: NextRequest) {
               const oldest = seenOrder.shift();
               if (oldest) seenIds.delete(oldest);
             }
+            if (!cached || cached.length === 0) {
+              for (const t of trades) {
+                if (t.trade_id) controller.enqueue(encoder.encode(encodeSSE(t)));
+              }
+            }
             return;
           }
 
@@ -77,14 +88,14 @@ export async function GET(request: NextRequest) {
               const oldest = seenOrder.shift();
               if (oldest) seenIds.delete(oldest);
             }
-            controller.enqueue(new TextEncoder().encode(encodeSSE(trade)));
+            controller.enqueue(encoder.encode(encodeSSE(trade)));
           }
         } catch {
           // Ignore fetch errors and keep polling
         }
       };
 
-      await poll();
+      poll();
       const intervalId = setInterval(poll, POLL_INTERVAL_MS);
 
       request.signal?.addEventListener("abort", () => {

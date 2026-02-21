@@ -14,6 +14,10 @@ import {
 const INITIAL_FETCH_LIMIT = 200;
 const MAX_TRADES = 500;
 const NEW_HIGHLIGHT_MS = 2000;
+const STREAM_BATCH_MS = 32;
+const RECONNECT_DELAY_MS = 2000;
+const CONNECTION_TIMEOUT_MS = 15000;
+const MAX_RECONNECT_ATTEMPTS = 10;
 
 export interface KalshiPublicTrade {
   trade_id: string;
@@ -60,6 +64,14 @@ export function LiveKalshiTrades({ ticker, marketName }: LiveKalshiTradesProps) 
   const [spinning, setSpinning] = useState(false);
   const [streamConnected, setStreamConnected] = useState(false);
   const knownIds = useRef<Set<string>>(new Set());
+  const streamBufferRef = useRef<KalshiPublicTrade[]>([]);
+  const streamFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamEsRef = useRef<EventSource | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionOpenedRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const addTrades = useCallback((incoming: KalshiPublicTrade[]) => {
     const fresh = incoming.filter((t) => !knownIds.current.has(t.trade_id));
@@ -95,7 +107,9 @@ export function LiveKalshiTrades({ ticker, marketName }: LiveKalshiTradesProps) 
       const params = new URLSearchParams();
       params.set("limit", String(INITIAL_FETCH_LIMIT));
       if (ticker) params.set("ticker", ticker);
-      const res = await fetch(`/api/kalshi/trades?${params.toString()}`);
+      const res = await fetch(`/api/kalshi/trades?${params.toString()}`, {
+        cache: "no-store",
+      });
       const contentType = res.headers.get("content-type") ?? "";
       const raw = await res.text();
       if (!contentType.includes("application/json")) {
@@ -130,24 +144,111 @@ export function LiveKalshiTrades({ ticker, marketName }: LiveKalshiTradesProps) 
   }, [fetchInitial]);
 
   useEffect(() => {
+    mountedRef.current = true;
     const streamUrl = ticker
       ? `/api/kalshi/trades/stream?ticker=${encodeURIComponent(ticker)}`
       : "/api/kalshi/trades/stream";
-    const es = new EventSource(streamUrl);
-    es.onopen = () => setStreamConnected(true);
-    es.onerror = () => setStreamConnected(false);
-    es.onmessage = (event) => {
-      try {
-        const raw = event.data;
-        if (typeof raw !== "string" || raw.trim().startsWith("<")) return;
-        const t = JSON.parse(raw) as KalshiPublicTrade;
-        if (t?.trade_id) addTrades([t]);
-      } catch {
-        // ignore malformed stream message
+
+    const flushStreamBuffer = () => {
+      streamFlushRef.current = null;
+      const buf = streamBufferRef.current;
+      if (buf.length > 0) {
+        streamBufferRef.current = [];
+        addTrades(buf);
       }
     };
+
+    const tryReconnect = () => {
+      if (!mountedRef.current || retryCountRef.current >= MAX_RECONNECT_ATTEMPTS) return;
+      retryCountRef.current += 1;
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        if (!mountedRef.current) return;
+        connect();
+      }, RECONNECT_DELAY_MS);
+    };
+
+    const connect = () => {
+      if (streamEsRef.current) {
+        streamEsRef.current.close();
+        streamEsRef.current = null;
+      }
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+      connectionOpenedRef.current = false;
+      const es = new EventSource(streamUrl);
+      streamEsRef.current = es;
+
+      connectionTimeoutRef.current = setTimeout(() => {
+        connectionTimeoutRef.current = null;
+        if (connectionOpenedRef.current) return;
+        es.close();
+        streamEsRef.current = null;
+        setStreamConnected(false);
+        tryReconnect();
+      }, CONNECTION_TIMEOUT_MS);
+
+      es.onopen = () => {
+        connectionOpenedRef.current = true;
+        if (connectionTimeoutRef.current) {
+          clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = null;
+        }
+        retryCountRef.current = 0;
+        setStreamConnected(true);
+      };
+
+      es.onerror = () => {
+        setStreamConnected(false);
+        es.close();
+        streamEsRef.current = null;
+        if (connectionTimeoutRef.current) {
+          clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = null;
+        }
+        tryReconnect();
+      };
+
+      es.onmessage = (event) => {
+        try {
+          const raw = event.data;
+          if (typeof raw !== "string" || raw.trim().startsWith("<")) return;
+          const t = JSON.parse(raw) as KalshiPublicTrade;
+          if (!t?.trade_id) return;
+          streamBufferRef.current.push(t);
+          if (streamFlushRef.current === null) {
+            streamFlushRef.current = setTimeout(flushStreamBuffer, STREAM_BATCH_MS);
+          }
+        } catch {
+          // ignore malformed stream message
+        }
+      };
+    };
+
+    connect();
+
     return () => {
-      es.close();
+      mountedRef.current = false;
+      if (reconnectTimeoutRef.current !== null) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (connectionTimeoutRef.current !== null) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+      if (streamFlushRef.current !== null) {
+        clearTimeout(streamFlushRef.current);
+        streamFlushRef.current = null;
+      }
+      streamBufferRef.current = [];
+      if (streamEsRef.current) {
+        streamEsRef.current.close();
+        streamEsRef.current = null;
+      }
+      retryCountRef.current = 0;
       setStreamConnected(false);
     };
   }, [addTrades, ticker]);
