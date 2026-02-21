@@ -27,7 +27,8 @@ export default function LeakLensDashboard() {
       generateSeededData(isLeaked, 0),
       generateSeededData(false, 1),
       generateSeededData(false, 2),
-      generateSeededData(false, 3)
+      generateSeededData(false, 3),
+      generateSeededData(false, 4)
     ];
     setAllContracts(contracts);
   }, [isLeaked]);

@@ -82,11 +82,17 @@ export const NAMED_TRADERS = [
   'Trader_Zenith'
 ];
 
+/**
+ * Real Kalshi market tickers, verified via API (api.elections.kalshi.com).
+ * Contract 3 has no NVIDIA stock market on Kalshi; CHINAUSGDP-30 is used as economics proxy.
+ * Contract 5 is high-volume (300k+ trades/24h) for showcasing the live trade stream.
+ */
 const CONTRACT_KALSHI_TICKERS = [
-  '',
-  '',
-  '',
-  '',
+  'KXFEDDECISION-26MAR-C25',       // Fed Cut 25bps at March 2026 meeting (Fed Rate Cut)
+  'KXCPI-26APR-T0.5',              // CPI rise more than 0.5% in April 2026 (closest to US CPI April 2026)
+  'CHINAUSGDP-30',                 // China overtake US GDP by 2030 (no NVIDIA market; economics proxy)
+  'KXTARIFFRATEPRC-26JUL01-34',    // US tariff rate on China 30-39.99% on Jul 1, 2026 (US-China trade policy)
+  'KXFEDDECISION-26MAR-H0',        // Fed maintains rate March 2026 (high volume, for stream showcase)
 ];
 
 const CONTRACT_TEMPLATES = [
@@ -113,6 +119,12 @@ const CONTRACT_TEMPLATES = [
     name: 'US-China Trade Deal',
     description: 'Will a US–China trade agreement be announced before July 1, 2026?',
     announcementOffset: 60 * 60000,
+  },
+  {
+    id: 'FED-MAR-2026-H0',
+    name: 'Fed Maintains Rate (March 2026)',
+    description: 'Will the Fed keep rates unchanged at the March 2026 meeting? High-volume market for live stream demo.',
+    announcementOffset: 15 * 60000,
   }
 ];
 
