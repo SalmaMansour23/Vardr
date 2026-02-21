@@ -2,7 +2,7 @@ import type {Metadata} from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'LeakLens | Market Integrity Risk Dashboard',
+  title: 'DriftX | Market Integrity Risk Dashboard',
   description: 'Real-time prediction market anomaly detection and integrity scoring.',
 };
 

@@ -16,7 +16,7 @@ import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TraderIntelligence } from '@/components/dashboard/TraderIntelligence';
 import { Input } from '@/components/ui/input';
 
-export default function LeakLensDashboard() {
+export default function DriftXDashboard() {
   const [isLeaked, setIsLeaked] = useState(false);
   const [activeContractIndex, setActiveContractIndex] = useState(0);
   const [allContracts, setAllContracts] = useState<Contract[]>([]);
@@ -57,7 +57,7 @@ export default function LeakLensDashboard() {
               <Shield className="text-primary w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-bold font-headline tracking-tight">LeakLens <span className="text-primary text-xs ml-1 bg-primary/10 px-1.5 py-0.5 rounded">v3.0</span></h1>
+              <h1 className="text-xl font-bold font-headline tracking-tight">DriftX <span className="text-primary text-xs ml-1 bg-primary/10 px-1.5 py-0.5 rounded">v3.0</span></h1>
               <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-bold uppercase">
                 <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-primary">ID: {activeContract.id}</span>
                 <span className="flex items-center gap-1"><Clock size={12} /> Live Monitoring</span>
