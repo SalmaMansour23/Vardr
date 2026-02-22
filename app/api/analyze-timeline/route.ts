@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { openRouterChat } from '../../lib/openrouter';
+import { parseJsonFromModel } from '../../lib/parse-json-from-model';
 
 export async function POST(request: NextRequest) {
   try {
-    const apiKey = process.env.NVIDIA_API_KEY;
+    const apiKey = process.env.OPEN_ROUTER_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'NVIDIA_API_KEY not configured' },
+        { error: 'OPEN_ROUTER_API_KEY not configured' },
         { status: 500 }
       );
     }
@@ -75,109 +77,56 @@ Return JSON only in this exact format. Do not include markdown, code fences, or 
 
     const userPrompt = `Posts to analyze:\n\n${postsText}`;
 
-    const response = await fetch(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'nvidia/nemotron-3-nano-30b-a3b',
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt,
-            },
-            {
-              role: 'user',
-              content: userPrompt,
-            },
-          ],
-          temperature: 0.3,
-          max_tokens: 800,
-        }),
-      }
-    );
+    const result = await openRouterChat(apiKey, {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 800,
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('NVIDIA API error:', response.status, errorText);
+    if ('error' in result) {
+      console.error('Open Router API error:', result.error);
       return NextResponse.json(
-        { error: `NVIDIA API request failed: ${response.statusText}` },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    const generatedText = data.choices?.[0]?.message?.content;
-
-    if (!generatedText) {
-      return NextResponse.json(
-        { error: 'No content returned from model' },
+        { error: result.error },
         { status: 500 }
       );
     }
 
-    // Parse the JSON response from the model
     try {
-      // Remove markdown code blocks if present
-      let cleanedText = generatedText.trim();
-      
-      // Remove ```json and ``` markers
-      cleanedText = cleanedText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-      
-      // Try to extract JSON object if there's surrounding text
-      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cleanedText = jsonMatch[0];
+      const parsedResult = parseJsonFromModel<{
+        public_signal_precedes_drift?: boolean | string;
+        risk_level?: string;
+        explanation?: string;
+      }>(result.content);
+
+      // Coerce public_signal_precedes_drift from string if needed
+      if (typeof parsedResult.public_signal_precedes_drift !== 'boolean') {
+        const v = parsedResult.public_signal_precedes_drift;
+        parsedResult.public_signal_precedes_drift = v === true || v === 'true' || String(v).toLowerCase() === 'true';
       }
-      
-      // Normalize common JSON issues from LLMs before parsing
-      cleanedText = cleanedText
-        .replace(/[“”]/g, '"')
-        .replace(/[‘’]/g, "'")
-        .replace(/\s*,\s*}/g, '}')
-        .replace(/\s*,\s*]/g, ']');
 
-      const parsedResult = JSON.parse(cleanedText);
-
+      // Normalize risk_level to Low | Medium | High
       if (typeof parsedResult.risk_level === 'string') {
         const normalized = parsedResult.risk_level.trim().toLowerCase();
         if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
           parsedResult.risk_level = normalized.charAt(0).toUpperCase() + normalized.slice(1);
         }
       }
-
-      // Validate the structure
-      if (
-        typeof parsedResult.public_signal_precedes_drift !== 'boolean' ||
-        !parsedResult.risk_level ||
-        typeof parsedResult.explanation !== 'string'
-      ) {
-        console.warn('Invalid response structure:', parsedResult);
-        return NextResponse.json(
-          { error: 'Invalid response structure from model' },
-          { status: 500 }
-        );
-      }
-
-      // Validate risk_level enum
       const validRiskLevels = ['Low', 'Medium', 'High'];
       if (!validRiskLevels.includes(parsedResult.risk_level)) {
-        console.warn('Invalid risk_level value:', parsedResult.risk_level);
-        return NextResponse.json(
-          { error: 'Invalid risk_level value from model' },
-          { status: 500 }
-        );
+        parsedResult.risk_level = 'Low';
+      }
+
+      if (typeof parsedResult.explanation !== 'string') {
+        parsedResult.explanation = parsedResult.explanation != null ? String(parsedResult.explanation) : '';
       }
 
       return NextResponse.json(parsedResult);
     } catch (parseError) {
-      console.warn('⚠️ Timeline analysis parse error (using fallback):', generatedText.substring(0, 100) + '...');
-      
-      // Return a fallback result
+      console.warn('Timeline analysis parse error (using fallback):', result.content?.substring(0, 100) + '...');
+
       return NextResponse.json({
         public_signal_precedes_drift: false,
         risk_level: 'Low',

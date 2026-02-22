@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { openRouterChat } from '../../lib/openrouter';
 
 interface Trade {
   timestamp: string;
@@ -136,48 +137,32 @@ function computeRiskFeatures(
 }
 
 /**
- * Calls NVIDIA Nemotron API to generate evidence-based risk explanation
+ * Calls Open Router (Nemotron) API to generate evidence-based risk explanation
  */
 async function callNemotron(prompt: string): Promise<string> {
-  const apiKey = process.env.NVIDIA_API_KEY;
-  
+  const apiKey = process.env.OPEN_ROUTER_API_KEY;
+
   if (!apiKey) {
-    throw new Error('NVIDIA_API_KEY is not configured');
+    throw new Error('OPEN_ROUTER_API_KEY is not configured');
   }
 
-  const response = await fetch(
-    'https://integrate.api.nvidia.com/v1/chat/completions',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+  const result = await openRouterChat(apiKey, {
+    messages: [
+      {
+        role: 'system',
+        content: 'You are an expert financial compliance analyst specializing in market manipulation detection and information asymmetry risk assessment. Provide evidence-based, structured analysis using quantitative features.'
       },
-      body: JSON.stringify({
-        model: 'nvidia/nemotron-3-nano-30b-a3b',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert financial compliance analyst specializing in market manipulation detection and information asymmetry risk assessment. Provide evidence-based, structured analysis using quantitative features.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 800,
-      }),
-    }
-  );
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0.3,
+    max_tokens: 800,
+  });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Nemotron API error: ${response.status} - ${errorText}`);
+  if ('error' in result) {
+    throw new Error(`Open Router API error: ${result.error}`);
   }
 
-  const data = await response.json();
-  return data.choices[0]?.message?.content || 'No response generated';
+  return result.content || 'No response generated';
 }
 
 /**

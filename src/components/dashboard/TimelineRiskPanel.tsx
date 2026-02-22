@@ -13,12 +13,15 @@ interface TimelineRiskPanelProps {
   timelineResult: TimelineResult;
   drift_time?: string;
   announcement_time?: string;
+  /** Numeric risk score (0-100) to show inside the panel */
+  riskScore?: number;
 }
 
 export function TimelineRiskPanel({ 
   timelineResult, 
   drift_time, 
-  announcement_time 
+  announcement_time,
+  riskScore 
 }: TimelineRiskPanelProps) {
   const getRiskColor = (level: string) => {
     switch (level) {
@@ -80,9 +83,17 @@ export function TimelineRiskPanel({
               </p>
             </div>
           </div>
-          <Badge variant={riskConfig.badge} className="text-[10px] font-bold uppercase tracking-wide px-3 py-1">
-            {timelineResult.risk_level} Risk
-          </Badge>
+          <div className="flex items-center gap-3">
+            {typeof riskScore === 'number' && (
+              <div className={`flex flex-col items-center justify-center rounded-xl border-2 ${riskConfig.bg} px-4 py-2 min-w-[4rem]`}>
+                <span className={`text-2xl font-bold leading-none ${riskConfig.text}`}>{riskScore}</span>
+                <span className="text-[9px] uppercase tracking-widest text-muted-foreground font-medium">Risk Score</span>
+              </div>
+            )}
+            <Badge variant={riskConfig.badge} className="text-[10px] font-bold uppercase tracking-wide px-3 py-1">
+              {timelineResult.risk_level} Risk
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 

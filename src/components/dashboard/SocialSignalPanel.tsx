@@ -17,9 +17,11 @@ interface Post {
 interface SocialSignalPanelProps {
   classifications: Classification[];
   posts?: Post[];
+  /** When true, show card with empty state when no classifications (e.g. in place of sentiment signals). */
+  showEmptyState?: boolean;
 }
 
-export function SocialSignalPanel({ classifications, posts = [] }: SocialSignalPanelProps) {
+export function SocialSignalPanel({ classifications, posts = [], showEmptyState = false }: SocialSignalPanelProps) {
   const getClassificationVariant = (classification: string): 'destructive' | 'default' | 'secondary' => {
     const lowerClass = classification.toLowerCase();
     if (lowerClass.includes('rumor') || lowerClass.includes('leak')) {
@@ -53,13 +55,14 @@ export function SocialSignalPanel({ classifications, posts = [] }: SocialSignalP
     return 'border-green-500/30 bg-green-500/5';
   };
 
-  if (classifications.length === 0) {
+  const isEmpty = classifications.length === 0;
+  if (isEmpty && !showEmptyState) {
     return null;
   }
 
   return (
-    <Card className="border-border/50 bg-card/30 rounded-2xl shadow-xl overflow-hidden">
-      <CardHeader className="p-6 border-b border-border/50">
+    <Card className="border-border/50 bg-card/30 rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[min(60vh,520px)]">
+      <CardHeader className="p-6 border-b border-border/50 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity size={18} className="text-primary" />
@@ -72,13 +75,22 @@ export function SocialSignalPanel({ classifications, posts = [] }: SocialSignalP
               </p>
             </div>
           </div>
-          <Badge variant="outline" className="text-[9px] uppercase border-primary/20 text-primary">
-            {classifications.length} Signal{classifications.length !== 1 ? 's' : ''}
-          </Badge>
+          {!isEmpty && (
+            <Badge variant="outline" className="text-[9px] uppercase border-primary/20 text-primary">
+              {classifications.length} Signal{classifications.length !== 1 ? 's' : ''}
+            </Badge>
+          )}
         </div>
       </CardHeader>
-      
-      <CardContent className="p-6">
+
+      <CardContent className="p-6 overflow-y-auto min-h-0 flex-1">
+        {isEmpty ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+            <Activity size={32} className="mb-3 opacity-50" />
+            <p className="text-xs font-medium">Run analysis to see AI-powered classification of market signals.</p>
+            <p className="text-[10px] mt-1">Classification, confidence, and reasoning will appear here.</p>
+          </div>
+        ) : (
         <div className="space-y-4">
           {classifications.map((classification, index) => {
             const post = posts[index];
@@ -162,6 +174,7 @@ export function SocialSignalPanel({ classifications, posts = [] }: SocialSignalP
             );
           })}
         </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { openRouterChat } from '../../lib/openrouter';
+import { parseJsonFromModel } from '../../lib/parse-json-from-model';
 
 export async function POST(request: NextRequest) {
   try {
-    const apiKey = process.env.NVIDIA_API_KEY;
+    const apiKey = process.env.OPEN_ROUTER_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'NVIDIA_API_KEY not configured' },
+        { error: 'OPEN_ROUTER_API_KEY not configured' },
         { status: 500 }
       );
     }
@@ -37,66 +39,25 @@ Return JSON only in this format:
   "reasoning": ""
 }`;
 
-    const response = await fetch(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'nvidia/nemotron-3-nano-30b-a3b',
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt,
-            },
-            {
-              role: 'user',
-              content: post,
-            },
-          ],
-          temperature: 0.2,
-          max_tokens: 500,
-        }),
-      }
-    );
+    const result = await openRouterChat(apiKey, {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: post },
+      ],
+      temperature: 0.2,
+      max_tokens: 600,
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('NVIDIA API error:', response.status, errorText);
+    if ('error' in result) {
+      console.error('Open Router API error:', result.error);
       return NextResponse.json(
-        { error: `NVIDIA API request failed: ${response.statusText}` },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    const generatedText = data.choices?.[0]?.message?.content;
-
-    if (!generatedText) {
-      return NextResponse.json(
-        { error: 'No content returned from model' },
+        { error: result.error },
         { status: 500 }
       );
     }
 
-    // Parse the JSON response from the model
     try {
-      // Remove markdown code blocks if present
-      let cleanedText = generatedText.trim();
-      
-      // Remove ```json and ``` markers
-      cleanedText = cleanedText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-      
-      // Try to extract JSON object if there's surrounding text
-      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        cleanedText = jsonMatch[0];
-      }
-      
-      const parsedResult = JSON.parse(cleanedText);
+      const parsedResult = parseJsonFromModel<{ classification: string; confidence: number; reasoning: string }>(result.content);
       
       // Validate the structure
       if (
@@ -113,9 +74,8 @@ Return JSON only in this format:
 
       return NextResponse.json(parsedResult);
     } catch (parseError) {
-      console.warn('⚠️ Model returned unparseable response (using fallback):', generatedText.substring(0, 100) + '...');
-      
-      // Return a fallback classification
+      console.warn('Model returned unparseable response (using fallback):', result.content?.substring(0, 100) + '...');
+
       return NextResponse.json({
         classification: 'Neutral',
         confidence: 0.5,

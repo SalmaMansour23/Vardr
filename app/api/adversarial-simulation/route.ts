@@ -1,31 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { openRouterChat, getAgentModel } from '../../lib/openrouter';
 
 export async function POST(request: NextRequest) {
   try {
-    const apiKey = process.env.NVIDIA_API_KEY;
+    const apiKey = process.env.OPEN_ROUTER_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'NVIDIA_API_KEY not configured' },
+        { error: 'OPEN_ROUTER_API_KEY not configured' },
         { status: 500 }
       );
     }
 
-    // Parse request body
+    // Parse request body (support frontend shape: market_structure, information, actual_pattern)
     const body = await request.json();
-    const { contract_data, trade_data } = body;
+    let { contract_data, trade_data } = body;
 
-    // Validate input
-    if (!contract_data || typeof contract_data !== 'object') {
-      return NextResponse.json(
-        { error: 'Missing or invalid "contract_data" field' },
-        { status: 400 }
-      );
+    if ((!contract_data || typeof contract_data !== 'object') && body.actual_pattern) {
+      contract_data = {
+        name: body.market_structure?.type ?? 'Prediction market',
+        description: body.information ?? 'N/A',
+        announcementTime: body.actual_pattern.drift_time ?? null,
+        currentPrice: 'N/A',
+        riskScore: 'N/A',
+      };
+    }
+    if (!Array.isArray(trade_data)) {
+      trade_data = [];
     }
 
-    if (!Array.isArray(trade_data)) {
+    if (!contract_data || typeof contract_data !== 'object') {
       return NextResponse.json(
-        { error: 'Missing or invalid "trade_data" array' },
+        { error: 'Missing or invalid "contract_data" or "actual_pattern" field' },
         { status: 400 }
       );
     }
@@ -81,50 +87,25 @@ Format:
   ]
 }`;
 
-    const response = await fetch(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'nvidia/nemotron-3-nano-30b-a3b',
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt,
-            },
-            {
-              role: 'user',
-              content: 'Generate the adversarial simulation now. Return only JSON.',
-            },
-          ],
-          temperature: 0.5,
-          max_tokens: 1200,
-        }),
-      }
-    );
+    const result = await openRouterChat(apiKey, {
+      model: getAgentModel(),
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: 'Generate the adversarial simulation now. Return only JSON.' },
+      ],
+      temperature: 0.5,
+      max_tokens: 1200,
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('NVIDIA API error:', response.status, errorText);
+    if ('error' in result) {
+      console.error('Open Router API error:', result.error);
       return NextResponse.json(
-        { error: `NVIDIA API request failed: ${response.statusText}` },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    let generatedText = data.choices?.[0]?.message?.content;
-
-    if (!generatedText) {
-      return NextResponse.json(
-        { error: 'No content returned from model' },
+        { error: result.error },
         { status: 500 }
       );
     }
+
+    let generatedText = result.content;
 
     // Clean up response - remove markdown code blocks if present
     generatedText = generatedText.trim();

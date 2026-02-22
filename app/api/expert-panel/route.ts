@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { openRouterChat, getAgentModel } from '../../lib/openrouter';
+import { parseJsonFromModel } from '../../lib/parse-json-from-model';
 
 interface ExpertReport {
   expert_type: string;
@@ -9,23 +11,38 @@ interface ExpertReport {
 
 export async function POST(request: NextRequest) {
   try {
-    const apiKey = process.env.NVIDIA_API_KEY;
+    const apiKey = process.env.OPEN_ROUTER_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'NVIDIA_API_KEY not configured' },
+        { error: 'OPEN_ROUTER_API_KEY not configured' },
         { status: 500 }
       );
     }
 
-    // Parse request body
+    // Parse request body (support frontend shape: posts, drift_time, announcement_time, market_movement)
     const body = await request.json();
-    const { contract_data, trade_data, public_signals } = body;
+    let { contract_data, trade_data, public_signals } = body;
 
-    // Validate input
+    if ((!contract_data || typeof contract_data !== 'object') && (body.posts != null || body.drift_time != null)) {
+      contract_data = {
+        name: 'Market analysis',
+        description: body.market_movement ?? 'N/A',
+        announcementTime: body.announcement_time ?? null,
+        currentPrice: 'N/A',
+        riskScore: 'N/A',
+      };
+    }
+    if (!Array.isArray(trade_data)) {
+      trade_data = [];
+    }
+    if (!Array.isArray(public_signals) && Array.isArray(body.posts)) {
+      public_signals = body.posts;
+    }
+
     if (!contract_data || typeof contract_data !== 'object') {
       return NextResponse.json(
-        { error: 'Missing or invalid "contract_data" field' },
+        { error: 'Missing or invalid "contract_data" or "posts"/"drift_time" for context' },
         { status: 400 }
       );
     }
@@ -129,11 +146,13 @@ Return ONLY valid JSON:
   "reasoning": "detailed microstructure analysis"
 }`;
 
-    // Call all three experts in parallel
+    const agentModel = getAgentModel();
+
+    // Call all three experts in parallel using Nvidia LLM from Open Router
     const expertPromises = [
-      callExpert(apiKey, statisticalPrompt),
-      callExpert(apiKey, narrativePrompt),
-      callExpert(apiKey, microstructurePrompt),
+      callExpert(apiKey, statisticalPrompt, agentModel),
+      callExpert(apiKey, narrativePrompt, agentModel),
+      callExpert(apiKey, microstructurePrompt, agentModel),
     ];
 
     const expertReports = await Promise.all(expertPromises);
@@ -186,8 +205,8 @@ Return ONLY valid JSON:
   "summary": "comprehensive synthesis of all expert findings"
 }`;
 
-    // Final synthesis call
-    const synthesisReport = await callSynthesis(apiKey, synthesisPrompt);
+    // Final synthesis call (same Nvidia agent model)
+    const synthesisReport = await callSynthesis(apiKey, synthesisPrompt, agentModel);
 
     if ('error' in synthesisReport) {
       return NextResponse.json(
@@ -214,58 +233,35 @@ Return ONLY valid JSON:
 }
 
 /**
- * Call a single expert with specific prompt
+ * Call a single expert with specific prompt using the configured Nvidia agent model.
  */
-async function callExpert(apiKey: string, systemPrompt: string): Promise<ExpertReport | { error: string }> {
+async function callExpert(
+  apiKey: string,
+  systemPrompt: string,
+  model: string
+): Promise<ExpertReport | { error: string }> {
   try {
-    const response = await fetch(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'nvidia/nemotron-3-nano-30b-a3b',
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt,
-            },
-            {
-              role: 'user',
-              content: 'Provide your expert analysis now. Return only JSON.',
-            },
-          ],
-          temperature: 0.4,
-          max_tokens: 800,
-        }),
-      }
-    );
+    const result = await openRouterChat(apiKey, {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: 'Provide your expert analysis now. Return only JSON.' },
+      ],
+      temperature: 0.4,
+      max_tokens: 1400,
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Expert call failed:', response.status, errorText);
-      return { error: `API request failed: ${response.statusText}` };
+    if ('error' in result) {
+      return { error: result.error };
     }
 
-    const data = await response.json();
-    let generatedText = data.choices?.[0]?.message?.content;
-
-    if (!generatedText) {
-      return { error: 'No content returned from model' };
+    let parsed: ExpertReport;
+    try {
+      parsed = parseJsonFromModel<ExpertReport>(result.content);
+    } catch (e) {
+      console.error('Expert JSON parse error:', e);
+      return { error: 'Invalid or truncated JSON from model' };
     }
-
-    // Clean up response
-    generatedText = generatedText.trim();
-    if (generatedText.startsWith('```json')) {
-      generatedText = generatedText.replace(/^```json\s*/, '').replace(/```\s*$/, '');
-    } else if (generatedText.startsWith('```')) {
-      generatedText = generatedText.replace(/^```\s*/, '').replace(/```\s*$/, '');
-    }
-
-    const parsed = JSON.parse(generatedText);
 
     // Validate structure
     if (
@@ -288,61 +284,35 @@ async function callExpert(apiKey: string, systemPrompt: string): Promise<ExpertR
 }
 
 /**
- * Call synthesis model to combine expert reports
+ * Call synthesis model to combine expert reports using the same Nvidia agent model.
  */
 async function callSynthesis(
   apiKey: string,
-  systemPrompt: string
+  systemPrompt: string,
+  model: string
 ): Promise<{ final_risk_score: number; confidence: number; summary: string } | { error: string }> {
   try {
-    const response = await fetch(
-      'https://integrate.api.nvidia.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'nvidia/nemotron-3-nano-30b-a3b',
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt,
-            },
-            {
-              role: 'user',
-              content: 'Provide your unified synthesis now. Return only JSON.',
-            },
-          ],
-          temperature: 0.3,
-          max_tokens: 600,
-        }),
-      }
-    );
+  const result = await openRouterChat(apiKey, {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: 'Provide your unified synthesis now. Return only JSON.' },
+    ],
+    temperature: 0.3,
+    max_tokens: 900,
+  });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Synthesis call failed:', response.status, errorText);
-      return { error: `API request failed: ${response.statusText}` };
-    }
+  if ('error' in result) {
+    return { error: result.error };
+  }
 
-    const data = await response.json();
-    let generatedText = data.choices?.[0]?.message?.content;
-
-    if (!generatedText) {
-      return { error: 'No content returned from synthesis model' };
-    }
-
-    // Clean up response
-    generatedText = generatedText.trim();
-    if (generatedText.startsWith('```json')) {
-      generatedText = generatedText.replace(/^```json\s*/, '').replace(/```\s*$/, '');
-    } else if (generatedText.startsWith('```')) {
-      generatedText = generatedText.replace(/^```\s*/, '').replace(/```\s*$/, '');
-    }
-
-    const parsed = JSON.parse(generatedText);
+  let parsed: { final_risk_score: number; confidence: number; summary: string };
+  try {
+    parsed = parseJsonFromModel(result.content);
+  } catch (e) {
+    console.error('Synthesis JSON parse error:', e);
+    return { error: 'Invalid or truncated JSON from model' };
+  }
 
     // Validate structure
     if (

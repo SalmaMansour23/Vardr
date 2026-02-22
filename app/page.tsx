@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { generateSeededData, Contract, TraderProfile, getTraderProfile } from '@/lib/data-generator';
 import { ProbabilityChart } from '@/components/dashboard/ProbabilityChart';
-import { RiskMeter } from '@/components/dashboard/RiskMeter';
 import { AnomalyBreakdown } from '@/components/dashboard/AnomalyBreakdown';
 import { TraderNetworkGraph } from '@/components/dashboard/TraderNetworkGraph';
 import { TradeTable } from '@/components/dashboard/TradeTable';
@@ -307,27 +306,11 @@ export default function LeakLensDashboard() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <TraderNetworkGraph analysis={activeContract} />
-                    <Card className="border-border/50 bg-card/30 rounded-2xl shadow-xl flex flex-col">
-                      <div className="p-4 border-b border-border/50 flex items-center justify-between">
-                        <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                          <MessageSquare size={14} /> Sentiment Signals
-                        </h2>
-                        <Badge variant="secondary" className="text-[9px]">Simulated Feed</Badge>
-                      </div>
-                      <div className="flex-1 p-4 space-y-4 overflow-y-auto max-h-[300px]">
-                        {activeContract.socialSignals.map((signal) => (
-                          <div key={signal.id} className="p-3 rounded-lg bg-muted/20 border border-border/50 space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="text-[10px] font-bold text-primary">@{signal.author}</span>
-                              <Badge variant={signal.sentiment === 'positive' ? 'default' : 'secondary'} className="text-[8px] h-4">
-                                {signal.sentiment}
-                              </Badge>
-                            </div>
-                            <p className="text-[11px] leading-relaxed italic">"{signal.text}"</p>
-                          </div>
-                        ))}
-                      </div>
-                    </Card>
+                    <SocialSignalPanel
+                      classifications={classifications}
+                      posts={signalTraceData.posts}
+                      showEmptyState
+                    />
                   </div>
                 </div>
 
@@ -356,25 +339,18 @@ export default function LeakLensDashboard() {
                           </CardContent>
                         </Card>
                       ) : timelineResult ? (
-                        <>
-                          <TimelineRiskPanel
-                            timelineResult={timelineResult}
-                            drift_time={signalTraceData.drift_time}
-                            announcement_time={signalTraceData.announcement_time}
-                          />
-                          <SocialSignalPanel
-                            classifications={classifications}
-                            posts={signalTraceData.posts}
-                          />
-                        </>
+                        <TimelineRiskPanel
+                          timelineResult={timelineResult}
+                          drift_time={signalTraceData.drift_time}
+                          announcement_time={signalTraceData.announcement_time}
+                          riskScore={adjustedRiskScore}
+                        />
                       ) : null}
                     </>
                   )}
 
                   <Card className="border-border/50 bg-card/30 rounded-2xl overflow-hidden shadow-2xl">
-                    <CardContent className="p-8 space-y-8">
-                      <RiskMeter score={adjustedRiskScore} />
-                      <div className="h-px bg-border/50 w-full" />
+                    <CardContent className="p-8">
                       <AnomalyBreakdown analysis={activeContract} />
                     </CardContent>
                   </Card>
