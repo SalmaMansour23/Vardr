@@ -2,8 +2,8 @@ import type {Metadata} from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'DriftX | Market Integrity Risk Dashboard',
-  description: 'Real-time prediction market anomaly detection and integrity scoring.',
+  title: 'Vardr Intelligence | Prediction Market Risk Dashboard',
+  description: 'Prediction market insider-risk intelligence and mitigation workflows powered by the Vardr Model.',
 };
 
 export default function RootLayout({

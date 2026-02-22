@@ -70,3 +70,60 @@ Behavior and thresholds are configurable so you can tune detection and UI withou
 - `npm run start` – Production server
 - `npm run lint` – Next lint
 - `npm run typecheck` – `tsc --noEmit`
+
+## Flagged Bets feed (new lightweight stack)
+
+This repo now includes a lightweight backend + frontend pair for insider-risk flagged bets:
+
+- `api/` – FastAPI service that serves suspicious feed rows from CSVs
+- `web/` – Next.js (App Router + TypeScript + Tailwind) UI for flagged bets
+
+### 1) Run API (FastAPI)
+
+```bash
+cd /Users/timothylawrence/mlmodeltest
+.venv/bin/pip install -r api/requirements.txt
+.venv/bin/uvicorn api.main:app --reload --port 8000
+```
+
+API endpoint:
+
+- `GET /api/suspicious?window=24h|7d|30d&band=INVESTIGATE|WATCHLIST|LOW|ALL&limit=1000`
+
+Example:
+
+```bash
+curl "http://localhost:8000/api/suspicious?window=24h&band=ALL&limit=200"
+```
+
+CSV inputs read per request:
+
+- `reports/suspicious_24h.csv`
+- `reports/suspicious_7d.csv`
+- `reports/suspicious_30d.csv`
+
+### 2) Run web UI (Next.js)
+
+```bash
+cd /Users/timothylawrence/mlmodeltest/web
+npm install
+npm run dev
+```
+
+UI runs at [http://localhost:3001](http://localhost:3001).
+
+### 3) Environment variables for web
+
+Create `web/.env.local` (or export env vars) with:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+REFRESH_SECONDS=60
+AI_INTEL_BASE_URL=https://your-ai-tool-url
+```
+
+Notes:
+
+- `NEXT_PUBLIC_API_BASE_URL` defaults to `http://localhost:8000`
+- `REFRESH_SECONDS` defaults to `60`
+- `AI_INTEL_BASE_URL` is used to build the “Open AI intelligence tool” row link

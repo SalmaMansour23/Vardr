@@ -38,6 +38,34 @@ export interface AiRiskPipelineOutput {
   timestamp: string;
   entityType: 'government' | 'company' | 'institutional';
   topicId?: TopicId;
+  analysisContext?: PipelineAnalysisContext;
+}
+
+export interface FlaggedBetContextRow {
+  ts?: string;
+  platform?: string;
+  market_id?: string;
+  market_title?: string;
+  band?: string;
+  risk_score?: number | null;
+  raw_risk?: number | null;
+  anomaly_score?: number | null;
+  p_informed?: number | null;
+  matched_keywords?: string[];
+}
+
+export interface FlaggedBetContextSummary {
+  keywords: string[];
+  window?: string;
+  total_matches: number;
+  band_counts?: Record<string, number>;
+  keyword_hit_counts?: Record<string, number>;
+  rows: FlaggedBetContextRow[];
+}
+
+export interface PipelineAnalysisContext {
+  focusKeywords: string[];
+  flaggedBetContext?: FlaggedBetContextSummary;
 }
 
 /**
@@ -56,13 +84,17 @@ export interface AiRiskPipelineOutput {
  */
 export async function runAiRiskPipeline(
   entityType: 'government' | 'company' | 'institutional' = 'government',
-  topicId: TopicId = '2028-election'
+  topicId: TopicId = '2028-election',
+  analysisContext?: PipelineAnalysisContext
 ): Promise<AiRiskPipelineOutput> {
   const pipelineStartTime = Date.now();
   const timestamp = new Date().toISOString();
 
   console.log('\n' + '═'.repeat(80));
   console.log(`🚀 AI RISK INTELLIGENCE PIPELINE - ${entityType.toUpperCase()} | ${topicId.toUpperCase()}`);
+  if (analysisContext?.focusKeywords?.length) {
+    console.log(`🔎 Focus Keywords: ${analysisContext.focusKeywords.join(', ')}`);
+  }
   console.log('═'.repeat(80));
 
   try {
@@ -179,13 +211,14 @@ export async function runAiRiskPipeline(
       entityType,
       activeAgents
     });
+    const contextualMegaRisk = applyAnalysisContextToMegaReport(megaRiskAssessment, analysisContext);
 
     activeAgents.push('mega');
 
     console.log('✅ Final Risk Report Generated');
-    console.log(`   • Composite Score: ${(megaRiskAssessment.compositeScore * 100).toFixed(1)}% (${megaRiskAssessment.finalRiskLevel})`);
-    console.log(`   • Insider Trading Probability: ${(megaRiskAssessment.insiderTradingProbability * 100).toFixed(1)}% (${megaRiskAssessment.compositeRiskConclusion.probabilityClassification})`);
-    console.log(`   • Processing Time: ${megaRiskAssessment.processingTimeMs}ms`);
+    console.log(`   • Composite Score: ${(contextualMegaRisk.compositeScore * 100).toFixed(1)}% (${contextualMegaRisk.finalRiskLevel})`);
+    console.log(`   • Insider Trading Probability: ${(contextualMegaRisk.insiderTradingProbability * 100).toFixed(1)}% (${contextualMegaRisk.compositeRiskConclusion.probabilityClassification})`);
+    console.log(`   • Processing Time: ${contextualMegaRisk.processingTimeMs}ms`);
 
     // ════════════════════════════════════════════════════════════════════════════════
     // PIPELINE COMPLETE
@@ -205,11 +238,12 @@ export async function runAiRiskPipeline(
       sentimentAnalysis,
       marketAnalysis,
       geopoliticalAnalysis,
-      megaRiskAssessment,
+      megaRiskAssessment: contextualMegaRisk,
       pipelineExecutionTimeMs,
       timestamp,
       entityType,
-      topicId
+      topicId,
+      analysisContext
     };
 
   } catch (error) {
@@ -217,6 +251,69 @@ export async function runAiRiskPipeline(
     console.error('Stack trace:', error instanceof Error ? error.stack : '');
     throw error;
   }
+}
+
+function applyAnalysisContextToMegaReport(
+  megaRiskAssessment: MegaRiskResult,
+  analysisContext?: PipelineAnalysisContext
+): MegaRiskResult {
+  const keywords = analysisContext?.focusKeywords?.map(k => k.trim()).filter(Boolean) || [];
+  const flaggedContext = analysisContext?.flaggedBetContext;
+
+  if (!keywords.length && !flaggedContext) {
+    return megaRiskAssessment;
+  }
+
+  const topRows = (flaggedContext?.rows || [])
+    .filter(r => (r.risk_score ?? 0) > 0)
+    .sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))
+    .slice(0, 5);
+
+  const keywordSummary =
+    keywords.length > 0
+      ? `Focus keywords selected by user: ${keywords.join(', ')}.`
+      : 'No explicit focus keywords were provided.';
+
+  const flaggedSummary = flaggedContext
+    ? `Flagged bet matches in ${flaggedContext.window || 'selected'} window: ${flaggedContext.total_matches}.`
+    : 'No flagged bet context was provided.';
+
+  const topFlaggedBlock = topRows.length
+    ? topRows
+        .map((r, i) => {
+          const title = r.market_title || r.market_id || 'unknown_market';
+          const platform = (r.platform || '--').toUpperCase();
+          const band = (r.band || 'LOW').toUpperCase();
+          const risk = r.risk_score === null || r.risk_score === undefined ? '--' : `${(r.risk_score * 100).toFixed(2)}%`;
+          const matched = r.matched_keywords && r.matched_keywords.length ? ` | matched: ${r.matched_keywords.join(', ')}` : '';
+          return `${i + 1}. ${title} (${platform}) | band=${band} | risk=${risk}${matched}`;
+        })
+        .join('\n')
+    : 'No high-risk flagged bets matched the selected keywords.';
+
+  const contextAppendix = [
+    'KEYWORD + FLAGGED-BETS CONTEXT',
+    keywordSummary,
+    flaggedSummary,
+    'Top matched flagged bets:',
+    topFlaggedBlock
+  ].join('\n');
+
+  const contextEvidence = `${keywordSummary} ${flaggedSummary}`.trim();
+  const recommendedActions = [
+    ...megaRiskAssessment.compositeRiskConclusion.recommendedActions,
+    'Cross-check selected keywords against the matched flagged bets list before escalation.'
+  ];
+
+  return {
+    ...megaRiskAssessment,
+    compositeRiskConclusion: {
+      ...megaRiskAssessment.compositeRiskConclusion,
+      evidenceSummary: `${megaRiskAssessment.compositeRiskConclusion.evidenceSummary} ${contextEvidence}`.trim(),
+      recommendedActions
+    },
+    report: `${megaRiskAssessment.report}\n\n${'-'.repeat(80)}\n${contextAppendix}`
+  };
 }
 
 /**
