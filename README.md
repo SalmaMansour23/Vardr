@@ -1,41 +1,66 @@
 # Vardr
 
-Market integrity risk dashboard for prediction markets. Vardr monitors information asymmetry, detects potential information leaks around market events (e.g. CPI releases), and surfaces risk via AI-powered signal analysis, causal graphs, and live Kalshi integration.
+Market integrity and insider-risk dashboard for prediction markets. Vardr monitors information asymmetry, detects potential information leaks around market events, and surfaces risk via the Vardr Model: ML-scored trades (Kalshi and Polymarket), AI signal analysis, and actionable flagged-bets feeds.
 
 ## Tech stack
 
-- **Framework:** Next.js 15 (Turbopack), React 19, TypeScript
+- **Framework:** Next.js 15, React 19, TypeScript
 - **UI:** Tailwind CSS, Radix UI, Lucide icons, Recharts, React Flow
-- **AI:** Genkit (Google AI / Gemini), Open Router (agent models for expert panel and adversarial simulation using Nemotron)
-- **Data:** Firebase, Kalshi Trade API (elections)
+- **AI:** Genkit (Google AI / Gemini), Open Router (expert panel and adversarial simulation, e.g. Nemotron)
+- **Data:** Firebase, Kalshi Trade API, Polymarket (CLOB client), ML Insider pipeline (Python) for scored reports
 
 ## Features
 
-- **Intelligence dashboard:** Probability charts, information propagation analysis, anomaly breakdown, trader network graph, social signal panel, timeline risk (AI-classified posts and timeline analysis)
-- **Advanced AI:** Causal network graph, cross-event correlation, adversarial strategy simulation, expert panel consensus (run after "Simulate Information Leak")
-- **Market activity:** Trade table, high-risk accounts, trader intelligence overlay
-- **Kalshi Live:** Live trades stream and Kalshi integration (trades, orders, fills, portfolio) when credentials are set
-- **Global overview:** Multi-contract market overview
+- **Flagged Bets:** Primary feed of ML-scored suspicious trades from Kalshi and Polymarket. Filter by time window (24h / 7d / 30d), band (Investigate / Watchlist / All), and keyword search. Data is served from `reports/suspicious_*.csv` via `/api/suspicious`.
+- **Risk Officer Report:** AI risk intelligence view (AiRiskIntelligencePage) for synthesized risk analysis.
+- **Simulation:** Information propagation analysis, probability charts, anomaly breakdown, social signal panel, and timeline risk. Run “Simulate Information Leak” to trigger AI timeline classification and risk scoring.
+- **Trader intelligence:** Drill-down into trader profiles and flag reasons from the simulation view.
+- **APIs for insider risk:** Next.js routes read ML Insider outputs: `/api/insider/alerts`, `/api/insider/markets`, `/api/insider/meta` (see [docs/ML_INSIDER_APP.md](docs/ML_INSIDER_APP.md)).
+
+## ML Insider pipeline (backend scoring)
+
+Scored trades and market rollups are produced by a Python pipeline in this repo. Run from the repo root:
+
+```bash
+python -m ml_insider.cli run-all
+```
+
+This ingests Kalshi and Polymarket data, builds a unified events table, trains anomaly (and optionally supervised) models, scores trades, and writes:
+
+- `reports/suspicious_24h.csv`, `suspicious_7d.csv`, `suspicious_30d.csv`, `suspicious_all.csv`
+- `reports/suspicious_*_markets.csv`
+- `artifacts/latest/meta.json`
+
+The Next.js app reads these files via the API routes above. See [docs/ML_INSIDER_APP.md](docs/ML_INSIDER_APP.md) for run order and integration details.
 
 ## Feature configuration
 
-Behavior and thresholds are configurable so you can tune detection and UI without changing code.
-
-- **Server (API routes):** `app/lib/feature-config.ts` – stream poll interval and max seen IDs, adversarial simulation time windows and thresholds, account risk profile windows and risk weights. Optional env overrides: `KALSHI_POLL_INTERVAL_MS`, `KALSHI_MAX_SEEN_IDS`, `ADVERSARIAL_SIMILARITY_THRESHOLD`, `RISK_WEIGHT_*`, `KALSHI_API_BASE_URL`, etc. (see `.env.local.example`).
-- **Contracts and scenario:** `src/lib/data-generator.ts` – `CONTRACT_CONFIG` (contract list, Kalshi tickers, event keywords, related events), demo timing constants, risk formula weights. Scenario (drift/announcement times, signal-trace event type) is derived from the active contract.
-- **UI risk display:** `src/lib/ui-thresholds.ts` – adversarial similarity badge threshold, causal graph edge weight cutoffs, social signal confidence threshold.
-- **API base URLs:** Set `OPEN_ROUTER_BASE_URL` and/or `KALSHI_API_BASE_URL` in `.env.local` to point at a proxy or staging endpoint.
+- **Server / API:** `app/lib/feature-config.ts` – Kalshi stream poll interval, adversarial thresholds, account risk weights. Env: `KALSHI_POLL_INTERVAL_MS`, `KALSHI_MAX_SEEN_IDS`, `ADVERSARIAL_SIMILARITY_THRESHOLD`, `KALSHI_API_BASE_URL`, etc. (see `.env.local.example`).
+- **Contracts / scenario:** `src/lib/data-generator.ts` – `CONTRACT_CONFIG`, event keywords, risk formula weights.
+- **UI thresholds:** `src/lib/ui-thresholds.ts` – adversarial similarity badge, causal graph cutoffs, social signal confidence.
+- **API base URLs:** `OPEN_ROUTER_BASE_URL`, `KALSHI_API_BASE_URL` in `.env.local` for proxies or staging.
 
 ## Project structure
 
-- `src/app/` – Next.js app router: `page.tsx` (main Vardr dashboard), `layout.tsx`, `globals.css`
-- `src/app/api/kalshi/` – Kalshi proxy API routes: trades, trades/stream, orders, fills, portfolio
-- `app/api/` – AI API routes: `classify-post`, `analyze-timeline`, `generate-causal-graph`, `cross-event-analysis`, `adversarial-simulation`, `expert-panel`
-- `src/components/dashboard/` – Dashboard UI: ProbabilityChart, TraderNetworkGraph, SocialSignalPanel, TimelineRiskPanel, CausalGraphVisualizer, LiveKalshiTrades, TradeTable, MarketOverview, etc.
+- `app/` – Next.js App Router entry: `layout.tsx` (Vardr branding, metadata), `page.tsx` (re-exports main dashboard), `globals.css`
+- `app/api/` – API routes:
+  - **Insider risk:** `insider/alerts`, `insider/markets`, `insider/meta` (read ML Insider CSVs and meta.json)
+  - **Flagged feed:** `suspicious`, `flagged-bets-context` (suspicious trade feed for the UI)
+  - **Kalshi:** `kalshi/markets`, `kalshi/market/[ticker]/trades`, `kalshi/trades`, `kalshi/trades/stream`
+  - **Polymarket:** `polymarket/markets`, `polymarket/market/[conditionId]/trades`
+  - **AI:** `classify-post`, `analyze-timeline`, `generate-causal-graph`, `cross-event-analysis`, `adversarial-simulation`, `expert-panel`
+  - **Other:** `account-risk-profile`, `market-health`, `cross-market-correlation`, `analyze-all-polymarkets`, `analyze-all-markets`
+- `app/lib/` – Shared utilities and types (e.g. `insider-types.ts`, `parse-csv.ts`, `feature-config.ts`)
+- `src/app/` – Main dashboard page (`page.tsx`), layout and globals
+- `src/components/dashboard/` – FlaggedBetsFeed, ProbabilityChart, AnomalyBreakdown, SocialSignalPanel, TimelineRiskPanel, TraderIntelligence, etc.
+- `components/dashboard/` – AiRiskIntelligencePage, InsiderRiskPanel, and other shared dashboard components
 - `src/components/ui/` – Shared UI primitives (Radix-based)
-- `src/lib/` – Data generation, Kalshi client, public signals, utils
-- `src/hooks/` – `use-signal-trace` (AI classification + timeline), `use-mobile`, `use-toast`
+- `src/lib/` – Data generation, Kalshi client, fetch helpers, utils
+- `src/hooks/` – `use-signal-trace` (AI classification and timeline), `use-mobile`, `use-toast`
 - `src/ai/` – Genkit setup (`genkit.ts`, `dev.ts`)
+- `ml_insider/` – Python pipeline: ingest (Kalshi + Polymarket), build (events table), train (anomaly + supervised), score (reports and artifacts)
+- `api/` – Optional FastAPI service for a standalone suspicious-trades API
+- `web/` – Optional standalone Next.js app for a dedicated flagged-bets UI
 
 ## Getting started
 
@@ -48,22 +73,26 @@ Behavior and thresholds are configurable so you can tune detection and UI withou
 
    App runs at [http://localhost:9002](http://localhost:9002).
 
-2. **Kalshi**
+2. **Kalshi (optional)**
 
    Copy `.env.local.example` to `.env.local` and set:
 
    - `KALSHI_API_KEY`
    - `KALSHI_PRIVATE_KEY_PATH` or `KALSHI_PRIVATE_KEY_PEM`
 
-   Get credentials from [Kalshi API](https://kalshi.com/account/api).
+   Credentials: [Kalshi API](https://kalshi.com/account/api).
 
-3. **Advanced AI (expert panel, adversarial simulation)**
+3. **Advanced AI (optional)**
 
-   In `.env.local` set `OPEN_ROUTER_API_KEY` from [Open Router](https://openrouter.ai/keys). Set `OPEN_ROUTER_AGENT_MODEL` (default: `nvidia/nemotron-3-nano-30b-a3b`) if you want a different model.
+   In `.env.local` set `OPEN_ROUTER_API_KEY` from [Open Router](https://openrouter.ai/keys). Optionally set `OPEN_ROUTER_AGENT_MODEL` (default: `nvidia/nemotron-3-nano-30b-a3b`).
+
+4. **Flagged Bets / ML Insider data**
+
+   The Flagged Bets tab and insider APIs use CSV reports written by the ML Insider pipeline. Run the pipeline at least once from the repo root so `reports/` and `artifacts/latest/` exist (see [ML Insider pipeline](#ml-insider-pipeline-backend-scoring) and [docs/ML_INSIDER_APP.md](docs/ML_INSIDER_APP.md)).
 
 ## Scripts
 
-- `npm run dev` – Next.js dev server (Turbopack, port 9002)
+- `npm run dev` – Next.js dev server (port 9002)
 - `npm run genkit:dev` – Genkit dev server with `src/ai/dev.ts`
 - `npm run genkit:watch` – Genkit with watch mode
 - `npm run build` – Production build
@@ -71,59 +100,27 @@ Behavior and thresholds are configurable so you can tune detection and UI withou
 - `npm run lint` – Next lint
 - `npm run typecheck` – `tsc --noEmit`
 
-## Flagged Bets feed (new lightweight stack)
+## Optional: Standalone Flagged Bets API and web app
 
-This repo now includes a lightweight backend + frontend pair for insider-risk flagged bets:
+The repo includes an optional FastAPI + Next.js stack for a separate suspicious-trades API and UI:
 
-- `api/` – FastAPI service that serves suspicious feed rows from CSVs
-- `web/` – Next.js (App Router + TypeScript + Tailwind) UI for flagged bets
+- **API (`api/`):** FastAPI app that serves rows from the same ML Insider CSVs.
 
-### 1) Run API (FastAPI)
+  ```bash
+  pip install -r api/requirements.txt
+  uvicorn api.main:app --reload --port 8000
+  ```
 
-```bash
-cd /Users/timothylawrence/mlmodeltest
-.venv/bin/pip install -r api/requirements.txt
-.venv/bin/uvicorn api.main:app --reload --port 8000
-```
+  Endpoint: `GET /api/suspicious?window=24h|7d|30d&band=INVESTIGATE|WATCHLIST|LOW|ALL&limit=1000`
 
-API endpoint:
+- **Web UI (`web/`):** Next.js app for a dedicated flagged-bets dashboard.
 
-- `GET /api/suspicious?window=24h|7d|30d&band=INVESTIGATE|WATCHLIST|LOW|ALL&limit=1000`
+  ```bash
+  cd web
+  npm install
+  npm run dev
+  ```
 
-Example:
+  Default: [http://localhost:3001](http://localhost:3001). Set `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`), `REFRESH_SECONDS`, and optionally `AI_INTEL_BASE_URL` in `web/.env.local`.
 
-```bash
-curl "http://localhost:8000/api/suspicious?window=24h&band=ALL&limit=200"
-```
-
-CSV inputs read per request:
-
-- `reports/suspicious_24h.csv`
-- `reports/suspicious_7d.csv`
-- `reports/suspicious_30d.csv`
-
-### 2) Run web UI (Next.js)
-
-```bash
-cd /Users/timothylawrence/mlmodeltest/web
-npm install
-npm run dev
-```
-
-UI runs at [http://localhost:3001](http://localhost:3001).
-
-### 3) Environment variables for web
-
-Create `web/.env.local` (or export env vars) with:
-
-```bash
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-REFRESH_SECONDS=60
-AI_INTEL_BASE_URL=https://your-ai-tool-url
-```
-
-Notes:
-
-- `NEXT_PUBLIC_API_BASE_URL` defaults to `http://localhost:8000`
-- `REFRESH_SECONDS` defaults to `60`
-- `AI_INTEL_BASE_URL` is used to build the “Open AI intelligence tool” row link
+The main Vardr app (root `npm run dev`) already includes a Flagged Bets tab that uses the Next.js route `/api/suspicious` and reads from the same `reports/` CSVs; the `api/` and `web/` setup is for a standalone deployment if needed.
