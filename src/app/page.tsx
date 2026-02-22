@@ -10,7 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { generateSeededData, Contract, TraderProfile, getTraderProfile, CONTRACT_CONFIG, getScenarioTimes, SIGNAL_TRACE_HOURS_BEFORE_EVENT } from '@/lib/data-generator';
 import { ProbabilityChart } from '@/components/dashboard/ProbabilityChart';
 import { AnomalyBreakdown } from '@/components/dashboard/AnomalyBreakdown';
-import { TradeTable } from '@/components/dashboard/TradeTable';
 import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TraderIntelligence } from '@/components/dashboard/TraderIntelligence';
 import { SocialSignalPanel } from '@/components/dashboard/SocialSignalPanel';
@@ -22,6 +21,7 @@ import { MarketStressAnalysis } from '@/components/dashboard/MarketStressAnalysi
 import { SystemicRiskAnalysis } from '@/components/dashboard/SystemicRiskAnalysis';
 import { PolymarketStressAnalysis } from '@/components/dashboard/PolymarketStressAnalysis';
 import { PolymarketSystemicRiskAnalysis } from '@/components/dashboard/PolymarketSystemicRiskAnalysis';
+import { FlaggedBetsFeed } from '@/components/dashboard/FlaggedBetsFeed';
 import { Input } from '@/components/ui/input';
 import { fetchPublicSignals } from '@/lib/fetchPublicSignals';
 import { ADVERSARIAL_HIGH_RISK_SIMILARITY } from '@/lib/ui-thresholds';
@@ -261,7 +261,7 @@ export default function LeakLensDashboard() {
                   <Brain size={14} /> Advanced AI
                 </TabsTrigger>
                 <TabsTrigger value="activity" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
-                  <ListFilter size={14} /> Market Activity
+                  <ListFilter size={14} /> Flagged Bets
                 </TabsTrigger>
                 <TabsTrigger value="kalshi" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
                   <Radio size={14} /> Kalshi Live
@@ -562,7 +562,7 @@ export default function LeakLensDashboard() {
             </TabsContent>
 
             <TabsContent value="activity" className="mt-0 animate-in fade-in duration-500">
-              <TradeTable trades={activeContract.trades} onTraderClick={handleTraderClick} announcementTime={activeContract.announcementTime} />
+              <FlaggedBetsFeed />
             </TabsContent>
 
             <TabsContent value="kalshi" className="mt-0 animate-in fade-in duration-500">

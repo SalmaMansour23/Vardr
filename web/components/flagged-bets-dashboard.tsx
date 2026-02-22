@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { formatDate, formatHours, formatPercent } from "@/lib/format";
+import { formatAmount, formatDate, formatPercent } from "@/lib/format";
 import { getAiIntelUrl, getPlatformUrl } from "@/lib/links";
 import type { FeedBand, SuspiciousRow, UiBandMode, WindowKey } from "@/lib/types";
 
@@ -48,6 +48,8 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
   const [mode, setMode] = useState<UiBandMode>("WATCHLIST_PLUS");
   const [limit, setLimit] = useState<number>(200);
   const [search, setSearch] = useState("");
+  const [minBetAmount, setMinBetAmount] = useState("");
+  const [maxBetAmount, setMaxBetAmount] = useState("");
   const [sortDescending, setSortDescending] = useState(true);
   const [rows, setRows] = useState<SuspiciousRow[]>([]);
   const [selected, setSelected] = useState<SuspiciousRow | null>(null);
@@ -99,10 +101,20 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const minAmount = minBetAmount.trim() === "" ? null : Number(minBetAmount);
+    const maxAmount = maxBetAmount.trim() === "" ? null : Number(maxBetAmount);
 
     let next = rows;
     if (q) {
       next = next.filter((r) => (r.market_title || "").toLowerCase().includes(q));
+    }
+
+    if (minAmount !== null && Number.isFinite(minAmount)) {
+      next = next.filter((r) => (r.trade_size ?? Number.NEGATIVE_INFINITY) >= minAmount);
+    }
+
+    if (maxAmount !== null && Number.isFinite(maxAmount)) {
+      next = next.filter((r) => (r.trade_size ?? Number.POSITIVE_INFINITY) <= maxAmount);
     }
 
     // Defensive client-side filter, even though API already applies a coarse band filter.
@@ -121,7 +133,7 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
       return sortDescending ? br - ar : ar - br;
     });
     return next;
-  }, [mode, rows, search, sortDescending]);
+  }, [maxBetAmount, minBetAmount, mode, rows, search, sortDescending]);
 
   const selectedReasons = parseReasons(selected?.info_susceptibility_reasons);
   const marketUrl = selected ? getPlatformUrl(selected) : null;
@@ -236,6 +248,29 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
           </div>
         </div>
 
+        <div className="mt-3 grid gap-3 lg:grid-cols-12">
+          <div className="lg:col-span-3">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Min Bet Amount</label>
+            <input
+              value={minBetAmount}
+              onChange={(e) => setMinBetAmount(e.target.value)}
+              placeholder="e.g. 50"
+              inputMode="decimal"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400"
+            />
+          </div>
+          <div className="lg:col-span-3">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Max Bet Amount</label>
+            <input
+              value={maxBetAmount}
+              onChange={(e) => setMaxBetAmount(e.target.value)}
+              placeholder="e.g. 5000"
+              inputMode="decimal"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400"
+            />
+          </div>
+        </div>
+
         <div className="mt-5 flex items-center gap-4 text-xs text-slate-600">
           <span>{loading ? "Loading..." : `${filteredRows.length} rows`}</span>
           <button
@@ -258,7 +293,7 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
                 <th className="px-4 py-3">Band</th>
                 <th className="px-4 py-3">Platform</th>
                 <th className="px-4 py-3">Market</th>
-                <th className="px-4 py-3">Time to Resolution</th>
+                <th className="px-4 py-3">Bet Amount</th>
                 <th className="px-4 py-3">Timestamp</th>
               </tr>
             </thead>
@@ -277,7 +312,7 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
                   </td>
                   <td className="px-4 py-3 uppercase text-slate-700">{row.platform || "--"}</td>
                   <td className="max-w-[520px] truncate px-4 py-3 text-slate-800">{row.market_title || "--"}</td>
-                  <td className="px-4 py-3 text-slate-700">{formatHours(row.time_to_resolution_hours ?? null)}</td>
+                  <td className="px-4 py-3 font-mono text-slate-700">{formatAmount(row.trade_size ?? null)}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">{formatDate(row.ts)}</td>
                 </tr>
               ))}

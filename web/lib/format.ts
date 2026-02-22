@@ -15,6 +15,13 @@ export function formatHours(value: number | null | undefined): string {
   return `${value.toFixed(1)}h`;
 }
 
+export function formatAmount(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "--";
+  }
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 export function formatDate(ts: string | undefined): string {
   if (!ts) return "--";
   const d = new Date(ts);
