@@ -41,6 +41,14 @@ next-env.d.ts
 
 # python local cache
 api/__pycache__/
+ml_insider/__pycache__/
+ml_insider/**/__pycache__/
+.venv/
+artifacts/
+data/
+reports/
+.kalshi_access_key
+APIKey.txt
 
 .genkit/*
 .env*

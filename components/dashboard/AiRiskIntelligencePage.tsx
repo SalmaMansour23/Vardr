@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Brain, ChevronDown, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { runAiRiskPipeline, AiRiskPipelineOutput } from '@/ai-risk-intelligence/runAiRiskPipeline';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  runAiRiskPipeline,
+  AiRiskPipelineOutput,
+  FlaggedBetContextSummary,
+} from '@/ai-risk-intelligence/runAiRiskPipeline';
 import type { TopicId } from '@/ai-risk-intelligence/data/hardcodedTopicData';
 
 type PipelineStage = 'idle' | 'sentiment' | 'market' | 'geopolitical' | 'mega' | 'complete';
@@ -35,10 +40,37 @@ interface ExpandedStages {
   [key: string]: boolean;
 }
 
+const KEYWORD_TO_TOPIC_RULES: Array<{ regex: RegExp; topic: TopicId }> = [
+  { regex: /\b(fed|fomc|powell|rate cut|interest rate|bps|inflation)\b/i, topic: 'fed-rate' },
+  { regex: /\b(earnings|guidance|release|gta|apple|meta|microsoft|tesla|company|corporate)\b/i, topic: 'tech-earnings' },
+  { regex: /\b(iran|israel|russia|ukraine|strike|war|missile|regime|khamenei|greenland|ceasefire|attack)\b/i, topic: 'geopolitical' },
+  { regex: /\b(trump|election|nominate|nomination|candidate|president|democrat|republican)\b/i, topic: '2028-election' },
+];
+
+function parseFocusKeywords(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part, idx, arr) => arr.findIndex((x) => x.toLowerCase() === part.toLowerCase()) === idx)
+    .slice(0, 20);
+}
+
+function inferTopicFromKeywords(keywords: string[]): TopicId {
+  const text = keywords.join(' ').toLowerCase();
+  for (const rule of KEYWORD_TO_TOPIC_RULES) {
+    if (rule.regex.test(text)) return rule.topic;
+  }
+  return 'geopolitical';
+}
+
 export function AiRiskIntelligencePage() {
-  const [selectedTopic, setSelectedTopic] = useState<TopicId>('2028-election');
+  const [selectedTopic, setSelectedTopic] = useState<TopicId>('geopolitical');
+  const [focusKeywordsInput, setFocusKeywordsInput] = useState('');
   const [entityType, setEntityType] = useState<EntityType>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [keywordError, setKeywordError] = useState('');
   const [currentStage, setCurrentStage] = useState<PipelineStage>('idle');
   const [pipelineState, setPipelineState] = useState<PipelineState>({
     data: { status: 'pending' },
@@ -49,6 +81,25 @@ export function AiRiskIntelligencePage() {
   });
   const [expandedStages, setExpandedStages] = useState<ExpandedStages>({});
   const [finalReport, setFinalReport] = useState<AiRiskPipelineOutput | null>(null);
+  const [flaggedContext, setFlaggedContext] = useState<FlaggedBetContextSummary | null>(null);
+
+  const focusKeywords = parseFocusKeywords(focusKeywordsInput);
+  const inferredTopic = inferTopicFromKeywords(focusKeywords);
+
+  useEffect(() => {
+    if (focusKeywordsInput.trim()) return;
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const urlKeywords = (params.get('keywords') || '').trim();
+    const urlTitle = (params.get('title') || '').trim();
+    if (urlKeywords) {
+      setFocusKeywordsInput(urlKeywords);
+      return;
+    }
+    if (urlTitle) {
+      setFocusKeywordsInput(urlTitle);
+    }
+  }, [focusKeywordsInput]);
 
   const getAgentsForEntity = (entity: EntityType) => {
     const agents: { [key: string]: string[] } = {
@@ -61,8 +112,18 @@ export function AiRiskIntelligencePage() {
 
   const handleRunPipeline = async (entity: EntityType) => {
     if (!entity) return;
-    
+
+    const parsedKeywords = parseFocusKeywords(focusKeywordsInput);
+    if (parsedKeywords.length === 0) {
+      setKeywordError('Enter at least one keyword, company, government, or market before selecting an agent.');
+      return;
+    }
+
+    setKeywordError('');
+    const topicForRun = inferTopicFromKeywords(parsedKeywords);
+    setSelectedTopic(topicForRun);
     setEntityType(entity);
+    setFinalReport(null);
     setIsRunning(true);
     setCurrentStage('sentiment');
     setPipelineState({
@@ -74,7 +135,34 @@ export function AiRiskIntelligencePage() {
     });
 
     try {
-      const result = await runAiRiskPipeline(entity, selectedTopic);
+      let contextPayload: FlaggedBetContextSummary | undefined;
+      setContextLoading(true);
+      try {
+        const url = new URL('/api/flagged-bets-context', window.location.origin);
+        url.searchParams.set('window', '30d');
+        url.searchParams.set('limit', '30');
+        url.searchParams.set('keywords', parsedKeywords.join(','));
+        const contextResp = await fetch(url.toString(), { cache: 'no-store' });
+        if (contextResp.ok) {
+          const payload = (await contextResp.json()) as FlaggedBetContextSummary;
+          contextPayload = payload;
+          setFlaggedContext(payload);
+        } else {
+          const payload = await contextResp.json().catch(() => ({}));
+          setFlaggedContext(null);
+          setKeywordError(payload?.error || 'Keyword context could not be loaded. Analysis still ran.');
+        }
+      } catch {
+        setFlaggedContext(null);
+        setKeywordError('Keyword context could not be loaded. Analysis still ran.');
+      } finally {
+        setContextLoading(false);
+      }
+
+      const result = await runAiRiskPipeline(entity, topicForRun, {
+        focusKeywords: parsedKeywords,
+        flaggedBetContext: contextPayload,
+      });
       const agents = getAgentsForEntity(entity);
 
       // Only run sentiment for all entity types
@@ -263,52 +351,54 @@ export function AiRiskIntelligencePage() {
           </div>
           <div>
             <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">
-              AI Risk Intelligence Pipeline
+              Vardr Risk Officer Report
             </h1>
-            <p className="text-xl text-muted-foreground">
-              Multi-Agent Risk Aggregation System
+            <p className="text-lg text-muted-foreground max-w-4xl mx-auto">
+              Built with top-of-the-line NVIDIA Nemotron technology, this report uses specialist agents trained on the proprietary Vardr Model plus context-dependent intelligence to deliver comprehensive risk mitigation recommendations.
+            </p>
+            <p className="text-sm text-muted-foreground max-w-4xl mx-auto">
+              The Vardr Model fuses anomaly scoring, informed-trader probability estimation, and leak-plausibility context into an auditable insider-risk framework across Kalshi and Polymarket.
             </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Topic Selector */}
+      {/* Keyword Selector */}
       <Card className="border-border/50 bg-card/50 overflow-hidden rounded-2xl shadow-lg border-2 border-accent/30">
         <CardContent className="p-8 space-y-6">
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-bold text-foreground">Market Topic</h2>
-            <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Select an analysis scenario</p>
+            <h2 className="text-2xl font-bold text-foreground">Step 1: Focus Keywords</h2>
+            <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">
+              Enter companies, governments, markets, or terms tied to divergence/spread/liquidity
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {TOPICS.map((topic) => (
-              <button
-                key={topic.id}
-                onClick={() => setSelectedTopic(topic.id)}
-                disabled={isRunning}
-                className={`p-4 rounded-xl border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed group ${
-                  selectedTopic === topic.id
-                    ? 'border-accent bg-accent/20 shadow-lg'
-                    : 'border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-accent/50'
-                }`}
-              >
-                <div className="space-y-2">
-                  <h3 className="text-sm font-bold text-foreground group-hover:text-accent">
-                    {topic.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {topic.description}
-                  </p>
-                  {selectedTopic === topic.id && (
-                    <div className="pt-2 border-t border-accent/30">
-                      <span className="inline-block px-2 py-1 rounded bg-accent/20 text-[10px] text-accent font-semibold">
-                        Selected
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </button>
-            ))}
+          <div className="space-y-3">
+            <Textarea
+              value={focusKeywordsInput}
+              onChange={(e) => setFocusKeywordsInput(e.target.value)}
+              placeholder="Examples: Iran strike, Fed rate cuts, GTA VI release, Kalshi spread widening, Polymarket liquidity"
+              rows={3}
+              disabled={isRunning}
+              className="text-sm"
+            />
+            <div className="flex flex-wrap gap-2">
+              {focusKeywords.map((keyword) => (
+                <span key={keyword} className="px-2 py-1 rounded bg-accent/20 text-[11px] text-accent font-semibold">
+                  {keyword}
+                </span>
+              ))}
+              {focusKeywords.length === 0 ? (
+                <span className="text-xs text-muted-foreground">No keywords entered yet.</span>
+              ) : null}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Internal scenario mapping: <span className="font-semibold text-foreground">{TOPICS.find(t => t.id === inferredTopic)?.name || inferredTopic}</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Active run scenario: <span className="font-semibold text-foreground">{TOPICS.find(t => t.id === selectedTopic)?.name || selectedTopic}</span>
+            </div>
+            {keywordError ? <p className="text-xs text-destructive">{keywordError}</p> : null}
           </div>
         </CardContent>
       </Card>
@@ -317,11 +407,11 @@ export function AiRiskIntelligencePage() {
       <Card className="border-border/50 bg-card/50 overflow-hidden rounded-2xl shadow-lg border-2 border-primary/30">
         <CardContent className="p-8 space-y-6">
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-bold text-foreground">Master Agent</h2>
+            <h2 className="text-2xl font-bold text-foreground">Step 2: Master Agent</h2>
             <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Who are you?</p>
             {entityType ? (
               <p className="text-xs text-accent font-semibold mt-3">
-                Analyzing: <span className="text-accent font-bold">{TOPICS.find(t => t.id === selectedTopic)?.name}</span>
+                Analyzing keywords: <span className="text-accent font-bold">{focusKeywords.join(', ') || '--'}</span>
               </p>
             ) : null}
           </div>
@@ -331,7 +421,7 @@ export function AiRiskIntelligencePage() {
               {/* Government Agency */}
               <button
                 onClick={() => handleRunPipeline('government')}
-                disabled={isRunning}
+                disabled={isRunning || focusKeywords.length === 0}
                 className="p-6 rounded-xl border-2 border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
               >
                 <div className="space-y-3">
@@ -352,7 +442,7 @@ export function AiRiskIntelligencePage() {
               {/* Company */}
               <button
                 onClick={() => handleRunPipeline('company')}
-                disabled={isRunning}
+                disabled={isRunning || focusKeywords.length === 0}
                 className="p-6 rounded-xl border-2 border-green-500/30 bg-green-500/10 hover:bg-green-500/20 hover:border-green-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
               >
                 <div className="space-y-3">
@@ -372,7 +462,7 @@ export function AiRiskIntelligencePage() {
               {/* Institutional Traders */}
               <button
                 onClick={() => handleRunPipeline('institutional')}
-                disabled={isRunning}
+                disabled={isRunning || focusKeywords.length === 0}
                 className="p-6 rounded-xl border-2 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 hover:border-amber-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
               >
                 <div className="space-y-3">
@@ -404,6 +494,7 @@ export function AiRiskIntelligencePage() {
                 onClick={() => {
                   setEntityType(null);
                   setFinalReport(null);
+                  setFlaggedContext(null);
                   setPipelineState({
                     data: { status: 'pending' },
                     sentiment: { status: 'pending' },
@@ -452,7 +543,7 @@ export function AiRiskIntelligencePage() {
                 🏛️ Insider Trading Risk Assessment
               </h2>
               <p className="text-sm text-muted-foreground">
-                Topic: <span className="font-semibold text-foreground">{TOPICS.find(t => t.id === selectedTopic)?.name}</span> | Entity: <span className="font-semibold text-foreground">{entityType === 'government' ? 'Government Agency' : entityType === 'company' ? 'Company' : 'Institutional Trader'}</span>
+                Keywords: <span className="font-semibold text-foreground">{(finalReport.analysisContext?.focusKeywords || focusKeywords).join(', ') || '--'}</span> | Entity: <span className="font-semibold text-foreground">{entityType === 'government' ? 'Government Agency' : entityType === 'company' ? 'Company' : 'Institutional Trader'}</span>
               </p>
             </div>
 
@@ -507,6 +598,64 @@ export function AiRiskIntelligencePage() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card className="border-2 border-accent/30 mb-8">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-foreground">Keyword-Linked Flagged Bets Context</h3>
+                  {contextLoading ? (
+                    <span className="text-xs text-muted-foreground">Loading flagged bets context...</span>
+                  ) : null}
+                </div>
+                {flaggedContext ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Matched <span className="font-semibold text-foreground">{flaggedContext.total_matches}</span> flagged bets in the {flaggedContext.window} window.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                      <div className="p-3 rounded bg-muted/40">
+                        <p className="text-muted-foreground">INVESTIGATE</p>
+                        <p className="font-bold text-foreground">{flaggedContext.band_counts?.INVESTIGATE ?? 0}</p>
+                      </div>
+                      <div className="p-3 rounded bg-muted/40">
+                        <p className="text-muted-foreground">WATCHLIST</p>
+                        <p className="font-bold text-foreground">{flaggedContext.band_counts?.WATCHLIST ?? 0}</p>
+                      </div>
+                      <div className="p-3 rounded bg-muted/40">
+                        <p className="text-muted-foreground">LOW</p>
+                        <p className="font-bold text-foreground">{flaggedContext.band_counts?.LOW ?? 0}</p>
+                      </div>
+                      <div className="p-3 rounded bg-muted/40">
+                        <p className="text-muted-foreground">Top Keyword Hits</p>
+                        <p className="font-bold text-foreground">
+                          {Object.entries(flaggedContext.keyword_hit_counts || {})
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 1)
+                            .map(([k, v]) => `${k} (${v})`)[0] || '--'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {(flaggedContext.rows || []).slice(0, 6).map((row, idx) => (
+                        <div key={`${row.market_id || row.market_title}-${idx}`} className="p-3 rounded bg-muted/30 border border-border/40">
+                          <p className="text-sm font-medium text-foreground">{row.market_title || row.market_id}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(row.platform || '--').toUpperCase()} | {(row.band || 'LOW').toUpperCase()} | risk {(row.risk_score === null || row.risk_score === undefined) ? '--' : `${(row.risk_score * 100).toFixed(2)}%`}
+                          </p>
+                          <p className="text-xs text-accent mt-1">
+                            matched keywords: {(row.matched_keywords || []).join(', ') || '--'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No keyword-matched flagged bets found for this run.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Evidence Summary */}
             <Card className="border-2 border-border/50 mb-8">

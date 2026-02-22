@@ -7,6 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 
 type WindowKey = "24h" | "7d" | "30d";
@@ -117,12 +124,17 @@ function buildPlatformUrl(row: SuspiciousRow): string | null {
 function buildAiIntelUrl(baseUrl: string, row: SuspiciousRow): string | null {
   const b = baseUrl.trim();
   if (!b) return null;
-  const u = new URL(b);
-  u.searchParams.set("platform", row.platform || "");
-  u.searchParams.set("market_id", row.market_id || "");
-  u.searchParams.set("title", row.market_title || "");
-  u.searchParams.set("risk", String(row.risk_score ?? ""));
-  return u.toString();
+  try {
+    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+    const u = new URL(b, origin);
+    u.searchParams.set("platform", row.platform || "");
+    u.searchParams.set("market_id", row.market_id || "");
+    u.searchParams.set("title", row.market_title || "");
+    u.searchParams.set("risk", String(row.risk_score ?? ""));
+    return u.toString();
+  } catch {
+    return null;
+  }
 }
 
 function matchesBandMode(row: SuspiciousRow, mode: BandMode): boolean {
@@ -135,9 +147,8 @@ function matchesBandMode(row: SuspiciousRow, mode: BandMode): boolean {
 }
 
 export function FlaggedBetsFeed() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-  const aiIntelBaseUrl =
-    process.env.NEXT_PUBLIC_AI_INTEL_BASE_URL || process.env.AI_INTEL_BASE_URL || "";
+  const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
+  const aiIntelBaseUrl = "/agents";
   const refreshSeconds = parseEnvInt(
     process.env.NEXT_PUBLIC_REFRESH_SECONDS || process.env.REFRESH_SECONDS,
     60,
@@ -162,16 +173,43 @@ export function FlaggedBetsFeed() {
     setError("");
 
     const band = toApiBand(bandMode);
-    const u = new URL(`${apiBaseUrl.replace(/\/$/, "")}/api/suspicious`);
-    u.searchParams.set("window", windowKey);
-    u.searchParams.set("band", band);
-    u.searchParams.set("limit", String(limit));
+    const makeUrl = (base: string | null): string => {
+      const params = new URLSearchParams();
+      params.set("window", windowKey);
+      params.set("band", band);
+      params.set("limit", String(limit));
+      if (base && base.trim()) {
+        const u = new URL(`${base.replace(/\/$/, "")}/api/suspicious`);
+        u.search = params.toString();
+        return u.toString();
+      }
+      return `/api/suspicious?${params.toString()}`;
+    };
+
+    const requestUrls = apiBaseUrl ? [makeUrl(apiBaseUrl), makeUrl(null)] : [makeUrl(null)];
 
     try {
-      const res = await fetch(u.toString(), { cache: "no-store" });
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload?.message || `Failed request (${res.status})`);
+      let payload: unknown = null;
+      let ok = false;
+      let lastErr: Error | null = null;
+
+      for (const requestUrl of requestUrls) {
+        try {
+          const res = await fetch(requestUrl, { cache: "no-store" });
+          const parsed = await res.json();
+          if (!res.ok) {
+            throw new Error((parsed as { message?: string })?.message || `Failed request (${res.status})`);
+          }
+          payload = parsed;
+          ok = true;
+          break;
+        } catch (err) {
+          lastErr = err instanceof Error ? err : new Error("Failed to load suspicious feed.");
+        }
+      }
+
+      if (!ok) {
+        throw lastErr || new Error("Failed to load suspicious feed.");
       }
       if (!Array.isArray(payload)) {
         throw new Error("API response was not an array.");
@@ -242,6 +280,12 @@ export function FlaggedBetsFeed() {
                 <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Flagged Bets Feed</h3>
                 <p className="text-[11px] text-muted-foreground">
                   Auto-refresh every {refreshSeconds}s. Last updated: {formatDate(lastUpdated)}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Built with the proprietary Vardr Model, this is the first model that attempts to classify insider trading activity in Kalshi.
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Vardr combines anomaly detection, informed-trader probability modeling, and context-aware plausibility scoring into a unified risk ranking for each trade.
                 </p>
               </div>
               <Button variant="outline" size="sm" className="gap-2" onClick={loadRows}>
@@ -364,80 +408,82 @@ export function FlaggedBetsFeed() {
         </CardContent>
       </Card>
 
-      {selected ? (
-        <Card className="border-border/50 bg-card/40 rounded-2xl overflow-hidden">
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h4 className="text-sm font-bold">{selected.market_title || "Untitled market"}</h4>
-                <p className="text-xs text-muted-foreground">{selected.market_id || "--"}</p>
+      <Sheet open={Boolean(selected)} onOpenChange={(open) => (!open ? setSelected(null) : undefined)}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+          {selected ? (
+            <div className="space-y-4">
+              <SheetHeader>
+                <SheetTitle className="text-base">{selected.market_title || "Untitled market"}</SheetTitle>
+                <SheetDescription>
+                  {(selected.platform || "--").toUpperCase()} | {selected.market_id || "--"}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                <div><span className="text-muted-foreground">risk_score (final):</span> {formatPercent(selected.risk_score)}</div>
+                <div><span className="text-muted-foreground">raw_risk:</span> {formatPercent(selected.raw_risk)}</div>
+                <div><span className="text-muted-foreground">p_informed:</span> {formatPercent(selected.p_informed)}</div>
+                <div><span className="text-muted-foreground">anomaly_score:</span> {formatPercent(selected.anomaly_score)}</div>
+                <div><span className="text-muted-foreground">info_susceptibility_score:</span> {formatPercent(selected.info_susceptibility_score)}</div>
+                <div><span className="text-muted-foreground">band:</span> {selected.band || "LOW"}</div>
+                <div><span className="text-muted-foreground">quota_fill:</span> {selected.quota_fill ?? 0}</div>
+                <div><span className="text-muted-foreground">market_id:</span> {selected.market_id || "--"}</div>
+                <div><span className="text-muted-foreground">timestamp:</span> {formatDate(selected.ts)}</div>
+                <div><span className="text-muted-foreground">bet_amount:</span> {formatAmount(selected.trade_size)}</div>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setSelected(null)}>
-                Close
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <div><span className="text-muted-foreground">Risk score:</span> {formatPercent(selected.risk_score)}</div>
-              <div><span className="text-muted-foreground">Raw risk:</span> {formatPercent(selected.raw_risk)}</div>
-              <div><span className="text-muted-foreground">p_informed:</span> {formatPercent(selected.p_informed)}</div>
-              <div><span className="text-muted-foreground">Anomaly score:</span> {formatPercent(selected.anomaly_score)}</div>
-              <div><span className="text-muted-foreground">Info susceptibility:</span> {formatPercent(selected.info_susceptibility_score)}</div>
-              <div><span className="text-muted-foreground">Band / quota:</span> {selected.band || "LOW"} / {selected.quota_fill ?? 0}</div>
-              <div><span className="text-muted-foreground">Bet amount:</span> {formatAmount(selected.trade_size)}</div>
-              <div><span className="text-muted-foreground">Timestamp:</span> {formatDate(selected.ts)}</div>
-            </div>
 
-            <div>
-              <div className="text-xs uppercase font-bold tracking-wider text-muted-foreground mb-1">Plausibility reasons</div>
-              {reasons.length ? (
-                <ul className="list-disc pl-5 text-xs space-y-1">
-                  {reasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-muted-foreground">--</p>
-              )}
+              <div>
+                <div className="text-xs uppercase font-bold tracking-wider text-muted-foreground mb-1">
+                  info_susceptibility_reasons
+                </div>
+                {reasons.length ? (
+                  <ul className="list-disc pl-5 text-xs space-y-1">
+                    {reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground">--</p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {marketUrl ? (
+                  <a href={marketUrl} target="_blank" rel="noreferrer">
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <ExternalLink size={14} /> Open on {(selected.platform || "market").toLowerCase() === "kalshi" ? "Kalshi" : "Polymarket"}
+                    </Button>
+                  </a>
+                ) : null}
+
+                {aiIntelUrl ? (
+                  <a href={aiIntelUrl} target="_blank" rel="noreferrer">
+                    <Button variant="secondary" size="sm" className="gap-2">
+                      <ExternalLink size={14} /> Open AI intelligence tool (internal)
+                    </Button>
+                  </a>
+                ) : null}
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2"
+                  onClick={async () => {
+                    if (!selected.market_id) return;
+                    try {
+                      await navigator.clipboard.writeText(selected.market_id);
+                    } catch {
+                      // no-op
+                    }
+                  }}
+                >
+                  <Copy size={14} /> Copy market_id
+                </Button>
+              </div>
             </div>
-
-            <div className="flex flex-wrap gap-2 pt-2">
-              {marketUrl ? (
-                <a href={marketUrl} target="_blank" rel="noreferrer">
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <ExternalLink size={14} /> Open on {(selected.platform || "market").toLowerCase() === "kalshi" ? "Kalshi" : "Polymarket"}
-                  </Button>
-                </a>
-              ) : null}
-
-              {aiIntelUrl ? (
-                <a href={aiIntelUrl} target="_blank" rel="noreferrer">
-                  <Button variant="secondary" size="sm" className="gap-2">
-                    <ExternalLink size={14} /> Open AI intelligence tool
-                  </Button>
-                </a>
-              ) : null}
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-2"
-                onClick={async () => {
-                  if (!selected.market_id) return;
-                  try {
-                    await navigator.clipboard.writeText(selected.market_id);
-                  } catch {
-                    // no-op
-                  }
-                }}
-              >
-                <Copy size={14} /> Copy market_id
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
