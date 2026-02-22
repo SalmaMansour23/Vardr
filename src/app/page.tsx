@@ -18,6 +18,10 @@ import { TimelineRiskPanel } from '@/components/dashboard/TimelineRiskPanel';
 import { CausalGraphVisualizer } from '@/components/dashboard/CausalGraphVisualizer';
 import { HighRiskAccountsPanel } from '@/components/dashboard/HighRiskAccountsPanel';
 import { LiveKalshiTrades } from '@/components/dashboard/LiveKalshiTrades';
+import { MarketStressAnalysis } from '@/components/dashboard/MarketStressAnalysis';
+import { SystemicRiskAnalysis } from '@/components/dashboard/SystemicRiskAnalysis';
+import { PolymarketStressAnalysis } from '@/components/dashboard/PolymarketStressAnalysis';
+import { PolymarketSystemicRiskAnalysis } from '@/components/dashboard/PolymarketSystemicRiskAnalysis';
 import { Input } from '@/components/ui/input';
 import { fetchPublicSignals } from '@/lib/fetchPublicSignals';
 import { ADVERSARIAL_HIGH_RISK_SIMILARITY } from '@/lib/ui-thresholds';
@@ -264,6 +268,18 @@ export default function LeakLensDashboard() {
                 </TabsTrigger>
                 <TabsTrigger value="overview" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
                   <Globe size={14} /> Global Overview
+                </TabsTrigger>
+                <TabsTrigger value="stress" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                  <Activity size={14} /> Market Stress
+                </TabsTrigger>
+                <TabsTrigger value="systemic" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                  <Network size={14} /> Systemic Risk
+                </TabsTrigger>
+                <TabsTrigger value="poly-stress" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                  <Activity size={14} /> Poly Market Stress
+                </TabsTrigger>
+                <TabsTrigger value="poly-risk" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                  <Network size={14} /> Poly Systemic Risk
                 </TabsTrigger>
               </TabsList>
 
@@ -558,6 +574,22 @@ export default function LeakLensDashboard() {
 
             <TabsContent value="overview" className="mt-0 animate-in fade-in duration-500">
               <MarketOverview contracts={allContracts} />
+            </TabsContent>
+
+            <TabsContent value="stress" className="mt-0 animate-in fade-in duration-500">
+              <MarketStressAnalysis />
+            </TabsContent>
+
+            <TabsContent value="systemic" className="mt-0 animate-in fade-in duration-500">
+              <SystemicRiskAnalysis />
+            </TabsContent>
+
+            <TabsContent value="poly-stress" className="mt-0 animate-in fade-in duration-500">
+              <PolymarketStressAnalysis />
+            </TabsContent>
+
+            <TabsContent value="poly-risk" className="mt-0 animate-in fade-in duration-500">
+              <PolymarketSystemicRiskAnalysis />
             </TabsContent>
           </Tabs>
         </div>

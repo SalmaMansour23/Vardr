@@ -114,16 +114,34 @@ export function useSignalTrace({
         });
 
         if (!timelineResponse.ok) {
-          const errorData = await timelineResponse.json();
-          throw new Error(errorData.error || 'Failed to analyze timeline');
+          console.warn('⚠️ Timeline analysis API error (using fallback):', timelineResponse.status);
+          // Use fallback timeline result instead of throwing
+          setTimelineResult({
+            public_signal_precedes_drift: false,
+            risk_level: 'Low',
+            explanation: 'Timeline analysis unavailable - using safe fallback.'
+          });
+        } else {
+          const timelineData = await timelineResponse.json();
+          setTimelineResult(timelineData);
         }
-
-        const timelineData = await timelineResponse.json();
-        setTimelineResult(timelineData);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-        setError(errorMessage);
-        console.error('❌ Signal trace critical error:', errorMessage);
+        console.warn('⚠️ Signal trace error (analysis partially completed):', errorMessage);
+        
+        // Set a fallback timeline result if we don't have one
+        if (!timelineResult) {
+          setTimelineResult({
+            public_signal_precedes_drift: false,
+            risk_level: 'Low',
+            explanation: 'Analysis encountered an error - using safe fallback.'
+          });
+        }
+        
+        // Only set error if we have no data at all
+        if (classifications.length === 0) {
+          setError(errorMessage);
+        }
       } finally {
         setLoading(false);
       }

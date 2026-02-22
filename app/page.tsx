@@ -185,7 +185,6 @@ export default function LeakLensDashboard() {
   if (!activeContract) return null;
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col font-body">
       {/* Top Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-6 h-20 flex items-center justify-between">
@@ -247,31 +246,39 @@ export default function LeakLensDashboard() {
             ))}
           </div>
 
-          <Tabs defaultValue="dashboard" className="w-full">
-            <div className="flex justify-between items-center mb-6">
-              <TabsList className="bg-card/30 border border-border/50 p-1 rounded-xl">
-                <TabsTrigger value="dashboard" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
-                  <LayoutDashboard size={14} /> Intelligence
-                </TabsTrigger>
-                <TabsTrigger value="advanced" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
-                  <Brain size={14} /> Advanced AI
-                </TabsTrigger>
-                <TabsTrigger value="activity" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
-                  <ListFilter size={14} /> Market Activity
-                </TabsTrigger>
-                <TabsTrigger value="kalshi" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
-                  <Radio size={14} /> Kalshi Live
-                </TabsTrigger>
-                <TabsTrigger value="overview" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
-                  <Globe size={14} /> Global Overview
-                </TabsTrigger>
-              </TabsList>
-
-              <div className="flex items-center gap-2 px-4 py-2 bg-card/20 border border-border/50 rounded-xl">
-                <Search size={14} className="text-muted-foreground" />
-                <Input placeholder="Search Trader..." className="h-6 w-32 border-none bg-transparent text-[11px] focus-visible:ring-0 p-0" />
+                {/* Simulate Leak Button on the side */}
+                <Button
+                  variant={isLeaked ? "destructive" : "outline"}
+                  size="sm"
+                  onClick={handleSimulateLeak}
+                  className="gap-2 font-bold uppercase text-[10px] tracking-widest border-2 transition-all duration-300 whitespace-nowrap flex-shrink-0"
+                >
+                  <Zap size={14} fill={isLeaked ? "currentColor" : "none"} />
+                  {isLeaked ? "Reset" : "Simulate Data Leak"}
+                </Button>
               </div>
-            </div>
+
+              {/* Nested Data Tabs */}
+              <Tabs defaultValue="dashboard" className="w-full">
+                <div className="flex justify-between items-center mb-6">
+                  <TabsList className="bg-card/30 border border-border/50 p-1 rounded-xl">
+                    <TabsTrigger value="dashboard" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                      <LayoutDashboard size={14} /> Intelligence
+                    </TabsTrigger>
+                    <TabsTrigger value="activity" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                      <ListFilter size={14} /> Market Activity
+                    </TabsTrigger>
+                    <TabsTrigger value="kalshi" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                      <Radio size={14} /> Kalshi Live
+                    </TabsTrigger>
+                    <TabsTrigger value="stress" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                      <Activity size={14} /> Kalshi Stress
+                    </TabsTrigger>
+                    <TabsTrigger value="poly-stress" className="gap-2 text-xs uppercase font-bold px-4 py-2 rounded-lg">
+                      <Activity size={14} /> Poly Market Stress
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
 
             <TabsContent value="dashboard" className="mt-0 space-y-8 animate-in fade-in duration-500">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -307,7 +314,7 @@ export default function LeakLensDashboard() {
                       showEmptyState
                     />
                   </div>
-                </div>
+              </div>
 
                 {/* Right Column (Risk Breakdown) */}
                 <div className="lg:col-span-4 space-y-8">

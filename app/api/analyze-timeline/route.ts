@@ -94,6 +94,14 @@ Return JSON only in this exact format. Do not include markdown, code fences, or 
       );
     }
 
+    if (!result.content) {
+      console.warn('No content returned from model');
+      return NextResponse.json(
+        { error: 'No content returned from model' },
+        { status: 500 }
+      );
+    }
+
     try {
       const parsedResult = parseJsonFromModel<{
         public_signal_precedes_drift?: boolean | string;
@@ -103,8 +111,8 @@ Return JSON only in this exact format. Do not include markdown, code fences, or 
 
       // Coerce public_signal_precedes_drift from string if needed
       if (typeof parsedResult.public_signal_precedes_drift !== 'boolean') {
-        const v = parsedResult.public_signal_precedes_drift;
-        parsedResult.public_signal_precedes_drift = v === true || v === 'true' || String(v).toLowerCase() === 'true';
+        const v = String(parsedResult.public_signal_precedes_drift).toLowerCase();
+        parsedResult.public_signal_precedes_drift = v === 'true';
       }
 
       // Normalize risk_level to Low | Medium | High
@@ -112,10 +120,10 @@ Return JSON only in this exact format. Do not include markdown, code fences, or 
         const normalized = parsedResult.risk_level.trim().toLowerCase();
         if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
           parsedResult.risk_level = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+        } else {
+          parsedResult.risk_level = 'Low';
         }
-      }
-      const validRiskLevels = ['Low', 'Medium', 'High'];
-      if (!validRiskLevels.includes(parsedResult.risk_level)) {
+      } else {
         parsedResult.risk_level = 'Low';
       }
 
