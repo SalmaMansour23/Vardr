@@ -6,7 +6,7 @@ Market integrity risk dashboard for prediction markets. DriftX monitors informat
 
 - **Framework:** Next.js 15 (Turbopack), React 19, TypeScript
 - **UI:** Tailwind CSS, Radix UI, Lucide icons, Recharts, React Flow
-- **AI:** Genkit (Google AI / Gemini), Open Router (optional agent models for expert panel and adversarial simulation)
+- **AI:** Genkit (Google AI / Gemini), Open Router (agent models for expert panel and adversarial simulation using Nemotron)
 - **Data:** Firebase, Kalshi Trade API (elections)
 
 ## Features
@@ -39,7 +39,7 @@ Market integrity risk dashboard for prediction markets. DriftX monitors informat
 
    App runs at [http://localhost:9002](http://localhost:9002).
 
-2. **Optional: Kalshi**
+2. **Kalshi**
 
    Copy `.env.local.example` to `.env.local` and set:
 
@@ -48,9 +48,9 @@ Market integrity risk dashboard for prediction markets. DriftX monitors informat
 
    Get credentials from [Kalshi API](https://kalshi.com/account/api).
 
-3. **Optional: Advanced AI (expert panel, adversarial simulation)**
+3. **Advanced AI (expert panel, adversarial simulation)**
 
-   In `.env.local` set `OPEN_ROUTER_API_KEY` from [Open Router](https://openrouter.ai/keys). Optionally set `OPEN_ROUTER_AGENT_MODEL` (default: `nvidia/nemotron-3-nano-30b-a3b`).
+   In `.env.local` set `OPEN_ROUTER_API_KEY` from [Open Router](https://openrouter.ai/keys). Set `OPEN_ROUTER_AGENT_MODEL` (default: `nvidia/nemotron-3-nano-30b-a3b`) if you want a different model.
 
 ## Scripts
 
