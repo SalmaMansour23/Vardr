@@ -48,3 +48,16 @@ key.txt
 # firebase
 firebase-debug.log
 firestore-debug.log
+
+# ml_insider backend local artifacts/secrets
+.venv/
+.kalshi_access_key
+.kalshi.key
+apikey.txt
+APIKey.txt
+data/raw/
+data/processed/
+artifacts/latest/
+reports/
+ml_insider/**/__pycache__/
+*.py[cod]
