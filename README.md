@@ -1,6 +1,6 @@
-# DriftX
+# Vardr
 
-Market integrity risk dashboard for prediction markets. DriftX monitors information asymmetry, detects potential information leaks around market events (e.g. CPI releases), and surfaces risk via AI-powered signal analysis, causal graphs, and live Kalshi integration.
+Market integrity risk dashboard for prediction markets. Vardr monitors information asymmetry, detects potential information leaks around market events (e.g. CPI releases), and surfaces risk via AI-powered signal analysis, causal graphs, and live Kalshi integration.
 
 ## Tech stack
 
@@ -28,7 +28,7 @@ Behavior and thresholds are configurable so you can tune detection and UI withou
 
 ## Project structure
 
-- `src/app/` – Next.js app router: `page.tsx` (main DriftX dashboard), `layout.tsx`, `globals.css`
+- `src/app/` – Next.js app router: `page.tsx` (main Vardr dashboard), `layout.tsx`, `globals.css`
 - `src/app/api/kalshi/` – Kalshi proxy API routes: trades, trades/stream, orders, fills, portfolio
 - `app/api/` – AI API routes: `classify-post`, `analyze-timeline`, `generate-causal-graph`, `cross-event-analysis`, `adversarial-simulation`, `expert-panel`
 - `src/components/dashboard/` – Dashboard UI: ProbabilityChart, TraderNetworkGraph, SocialSignalPanel, TimelineRiskPanel, CausalGraphVisualizer, LiveKalshiTrades, TradeTable, MarketOverview, etc.
