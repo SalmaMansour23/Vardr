@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { openRouterChat, getAgentModel } from '../../lib/openrouter';
+import {
+  LAST_HOUR_MS,
+  LAST_24H_MS,
+  RAPID_SEQUENCE_WINDOW_MS,
+  LAST_HOUR_CONCENTRATION_RATIO,
+  TRADER_CONCENTRATION_MIN,
+  MIN_TRADERS_FOR_CONCENTRATION,
+  SIMILARITY_THRESHOLD,
+  RAPID_SEQUENCE_MIN_COUNT,
+  RAPID_SEQUENCE_RATIO,
+} from '../../lib/feature-config';
 
 export async function POST(request: NextRequest) {
   try {
@@ -201,16 +212,15 @@ function compareStrategyToActual(
     t.timestamp && t.timestamp < announcementTime
   );
   
-  const lastHourTrades = preEventTrades.filter((t: any) => 
-    announcementTime - t.timestamp < 3600000 // 1 hour in ms
-  );
-  
-  const last24HourTrades = preEventTrades.filter((t: any) => 
-    announcementTime - t.timestamp < 86400000 // 24 hours in ms
+  const lastHourTrades = preEventTrades.filter((t: any) =>
+    announcementTime - t.timestamp < LAST_HOUR_MS
   );
 
-  // Check for concentration of trades before announcement
-  if (lastHourTrades.length > preEventTrades.length * 0.3) {
+  const last24HourTrades = preEventTrades.filter((t: any) =>
+    announcementTime - t.timestamp < LAST_24H_MS
+  );
+
+  if (lastHourTrades.length > preEventTrades.length * LAST_HOUR_CONCENTRATION_RATIO) {
     anomalies.push('High concentration of trades in final hour before announcement');
     similarityScore += 25;
     factors.push('Timing concentration matches manipulation pattern');
@@ -239,7 +249,7 @@ function compareStrategyToActual(
   const maxTradesPerTrader = Math.max(...Object.values(traderCounts));
   const concentration = maxTradesPerTrader / preEventTrades.length;
 
-  if (concentration > 0.3 && traders.length < 10) {
+  if (concentration > TRADER_CONCENTRATION_MIN && traders.length < MIN_TRADERS_FOR_CONCENTRATION) {
     anomalies.push('High concentration of trades from few accounts');
     similarityScore += 25;
     factors.push('Coordination pattern suggests organized activity');
@@ -253,10 +263,7 @@ function compareStrategyToActual(
     factors.push('Sequential coordination detected');
   }
 
-  // Calculate risk adjustment
-  const SIMILARITY_THRESHOLD = 50; // 50% similarity threshold
   let riskAdjustment = 0;
-  
   if (similarityScore >= SIMILARITY_THRESHOLD) {
     riskAdjustment = Math.min(30, Math.floor((similarityScore - SIMILARITY_THRESHOLD) / 2));
   }
@@ -286,13 +293,12 @@ function analyzeTradeSequences(trades: any[]): { hasRapidSequence: boolean } {
   let rapidCount = 0;
   for (let i = 1; i < sortedTrades.length; i++) {
     const timeDiff = sortedTrades[i].timestamp - sortedTrades[i - 1].timestamp;
-    // Check if trades are within 5 minutes of each other
-    if (timeDiff < 300000 && sortedTrades[i].traderId !== sortedTrades[i - 1].traderId) {
+    if (timeDiff < RAPID_SEQUENCE_WINDOW_MS && sortedTrades[i].traderId !== sortedTrades[i - 1].traderId) {
       rapidCount++;
     }
   }
 
   return {
-    hasRapidSequence: rapidCount > Math.min(5, sortedTrades.length * 0.2),
+    hasRapidSequence: rapidCount > Math.min(RAPID_SEQUENCE_MIN_COUNT, sortedTrades.length * RAPID_SEQUENCE_RATIO),
   };
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
+import { KALSHI_BASE_URL } from "../../../lib/feature-config";
 
-const KALSHI_TRADES_URL = "https://api.elections.kalshi.com/trade-api/v2/markets/trades";
 const DEFAULT_LIMIT = 200;
 
 export async function GET(request: Request) {
@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   const cursor = searchParams.get("cursor") ?? "";
   const ticker = searchParams.get("ticker") ?? "";
 
-  const url = new URL(KALSHI_TRADES_URL);
+  const url = new URL(`${KALSHI_BASE_URL}/markets/trades`);
   url.searchParams.set("limit", limit);
   if (cursor) url.searchParams.set("cursor", cursor);
   if (ticker) url.searchParams.set("ticker", ticker);

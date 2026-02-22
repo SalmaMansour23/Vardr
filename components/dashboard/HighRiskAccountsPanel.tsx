@@ -34,7 +34,8 @@ interface HighRiskAccountsPanelProps {
   accounts?: AccountRiskProfile[];
 }
 
-// Mock data for high-risk accounts
+const DEMO_SCENARIO_DATE = '2026-04-10';
+
 const MOCK_ACCOUNTS: AccountRiskProfile[] = [
   {
     account_id: 'ACC-2847-ALPHA',
@@ -57,7 +58,7 @@ const MOCK_ACCOUNTS: AccountRiskProfile[] = [
       signal_correlation: 78.9
     },
     false_positive_probability: 8,
-    flagged_timestamp: '2026-04-10T09:15:00Z'
+    flagged_timestamp: `${DEMO_SCENARIO_DATE}T09:15:00Z`
   },
   {
     account_id: 'ACC-1593-GAMMA',
@@ -80,7 +81,7 @@ const MOCK_ACCOUNTS: AccountRiskProfile[] = [
       signal_correlation: 82.1
     },
     false_positive_probability: 15,
-    flagged_timestamp: '2026-04-10T08:47:00Z'
+    flagged_timestamp: `${DEMO_SCENARIO_DATE}T08:47:00Z`
   },
   {
     account_id: 'ACC-4219-DELTA',
@@ -103,7 +104,7 @@ const MOCK_ACCOUNTS: AccountRiskProfile[] = [
       signal_correlation: 63.7
     },
     false_positive_probability: 22,
-    flagged_timestamp: '2026-04-10T08:52:00Z'
+    flagged_timestamp: `${DEMO_SCENARIO_DATE}T08:52:00Z`
   },
   {
     account_id: 'ACC-7831-THETA',
@@ -126,7 +127,7 @@ const MOCK_ACCOUNTS: AccountRiskProfile[] = [
       signal_correlation: 60.2
     },
     false_positive_probability: 29,
-    flagged_timestamp: '2026-04-10T08:39:00Z'
+    flagged_timestamp: `${DEMO_SCENARIO_DATE}T08:39:00Z`
   }
 ];
 

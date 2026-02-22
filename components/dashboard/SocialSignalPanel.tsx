@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, TrendingUp, Shield, Activity } from 'lucide-react';
+import { SOCIAL_SIGNAL_HIGH_CONFIDENCE } from '@/lib/ui-thresholds';
 
 interface Classification {
   classification: string;
@@ -116,7 +117,7 @@ export function SocialSignalPanel({ classifications, posts = [], showEmptyState 
                       Confidence
                     </span>
                     <span className={`text-sm font-bold ${
-                      classification.confidence > 0.7 ? 'text-foreground' : 'text-muted-foreground'
+                      classification.confidence > SOCIAL_SIGNAL_HIGH_CONFIDENCE ? 'text-foreground' : 'text-muted-foreground'
                     }`}>
                       {Math.round(classification.confidence * 100)}%
                     </span>

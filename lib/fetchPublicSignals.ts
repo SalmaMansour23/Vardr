@@ -154,19 +154,22 @@ function generateTimestamps(count: number, hoursBeforeEvent: number = 48, driftT
   return timestamps.sort();
 }
 
+export const FETCH_PUBLIC_SIGNALS_DEFAULT_COUNT = 8;
+export const FETCH_PUBLIC_SIGNALS_DEFAULT_HOURS_BEFORE_EVENT = 48;
+
 /**
  * Fetches simulated public financial signals related to a given event
- * 
+ *
  * @param eventKeyword - Keyword to determine which type of posts to generate (cpi, fed, energy, trade, earnings, jobs)
- * @param count - Number of posts to generate (default: 8)
- * @param hoursBeforeEvent - Time window in hours before event (default: 48)
+ * @param count - Number of posts to generate (default: FETCH_PUBLIC_SIGNALS_DEFAULT_COUNT)
+ * @param hoursBeforeEvent - Time window in hours before event (default: FETCH_PUBLIC_SIGNALS_DEFAULT_HOURS_BEFORE_EVENT)
  * @returns Array of public signals with text, timestamp, and source
  */
 export function fetchPublicSignals(
   eventKeyword: string,
   driftTime: string,
-  count: number = 8,
-  hoursBeforeEvent: number = 48
+  count: number = FETCH_PUBLIC_SIGNALS_DEFAULT_COUNT,
+  hoursBeforeEvent: number = FETCH_PUBLIC_SIGNALS_DEFAULT_HOURS_BEFORE_EVENT
 ): PublicSignal[] {
   
   const keyword = eventKeyword.toLowerCase();

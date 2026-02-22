@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFileSync } from "fs";
 import { Configuration, PortfolioApi } from "kalshi-typescript";
 
-const BASE_PATH = "https://api.elections.kalshi.com/trade-api/v2";
+const BASE_PATH = process.env.KALSHI_API_BASE_URL ?? "https://api.elections.kalshi.com/trade-api/v2";
 
 function getApiKey(): string {
   const apiKey = process.env.API_KEY ?? process.env.KALSHI_API_KEY ?? "";

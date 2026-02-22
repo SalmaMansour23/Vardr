@@ -3,6 +3,8 @@
  * from an external API. Returns mock posts with timestamps.
  */
 
+export const MOCK_FETCH_DELAY_MS = 500;
+
 export interface Post {
   id: string;
   text: string;
@@ -12,8 +14,7 @@ export interface Post {
 }
 
 export async function fetchCPIPosts(): Promise<Post[]> {
-  // Simulate API delay
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, MOCK_FETCH_DELAY_MS));
 
   const now = new Date();
   

@@ -1,4 +1,4 @@
-const OPEN_ROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPEN_ROUTER_URL = process.env.OPEN_ROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'nvidia/nemotron-3-nano-30b-a3b';
 
 /** Nvidia model used for the expert-panel agent (experts + synthesis). Override with OPEN_ROUTER_AGENT_MODEL. */

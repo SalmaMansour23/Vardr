@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
+import { KALSHI_BASE_URL } from "../../../lib/feature-config";
 
-const KALSHI_MARKETS_URL = "https://api.elections.kalshi.com/trade-api/v2/markets";
 const DEFAULT_LIMIT = 20;
 
 export async function GET(request: Request) {
@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const limit = searchParams.get("limit") ?? String(DEFAULT_LIMIT);
   const status = searchParams.get("status") ?? "";
 
-  const url = new URL(KALSHI_MARKETS_URL);
+  const url = new URL(`${KALSHI_BASE_URL}/markets`);
   url.searchParams.set("limit", limit);
   if (status) url.searchParams.set("status", status);
 

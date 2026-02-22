@@ -7,10 +7,9 @@ import { useSignalTrace } from '../hooks/use-signal-trace';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { generateSeededData, Contract, TraderProfile, getTraderProfile } from '@/lib/data-generator';
+import { generateSeededData, Contract, TraderProfile, getTraderProfile, CONTRACT_CONFIG, getScenarioTimes, SIGNAL_TRACE_HOURS_BEFORE_EVENT } from '@/lib/data-generator';
 import { ProbabilityChart } from '@/components/dashboard/ProbabilityChart';
 import { AnomalyBreakdown } from '@/components/dashboard/AnomalyBreakdown';
-import { TraderNetworkGraph } from '@/components/dashboard/TraderNetworkGraph';
 import { TradeTable } from '@/components/dashboard/TradeTable';
 import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TraderIntelligence } from '@/components/dashboard/TraderIntelligence';
@@ -21,6 +20,7 @@ import { HighRiskAccountsPanel } from '@/components/dashboard/HighRiskAccountsPa
 import { LiveKalshiTrades } from '@/components/dashboard/LiveKalshiTrades';
 import { Input } from '@/components/ui/input';
 import { fetchPublicSignals } from '@/lib/fetchPublicSignals';
+import { ADVERSARIAL_HIGH_RISK_SIMILARITY } from '@/lib/ui-thresholds';
 
 export default function LeakLensDashboard() {
   const [isLeaked, setIsLeaked] = useState(false);
@@ -36,39 +36,34 @@ export default function LeakLensDashboard() {
   const [expertPanel, setExpertPanel] = useState<any>(null);
   const [advancedLoading, setAdvancedLoading] = useState(false);
 
-  // Signal trace data for leak simulation
-  const signalTraceData = useMemo(() => {
-    const drift_time = "2026-04-10T08:23:00";
-    const announcement_time = "2026-04-10T08:30:00";
+  const activeContract = useMemo(() => allContracts[activeContractIndex], [allContracts, activeContractIndex]);
 
-    // Generate realistic mock posts using fetchPublicSignals
-    const publicSignals = runAnalysis ? fetchPublicSignals('cpi', drift_time, 15) : [];
+  const activeConfig = useMemo(() =>
+    CONTRACT_CONFIG.find(c => c.id === activeContract?.id) ?? CONTRACT_CONFIG[0],
+    [activeContract?.id]
+  );
+
+  const signalTraceData = useMemo(() => {
+    const { drift_time, announcement_time } = activeContract
+      ? getScenarioTimes(activeContract)
+      : { drift_time: '', announcement_time: '' };
+    const eventKeyword = activeConfig?.eventKeyword ?? 'cpi';
+    const publicSignals = runAnalysis && drift_time
+      ? fetchPublicSignals(eventKeyword, drift_time, 15, SIGNAL_TRACE_HOURS_BEFORE_EVENT)
+      : [];
     const posts = publicSignals.map(signal => ({
       text: signal.text,
       timestamp: signal.timestamp
     }));
-
-    return {
-      drift_time,
-      announcement_time,
-      posts
-    };
-  }, [runAnalysis]);
+    return { drift_time, announcement_time, posts };
+  }, [runAnalysis, activeContract, activeConfig?.eventKeyword]);
 
   const { classifications, timelineResult, loading, error } = useSignalTrace(signalTraceData);
 
   useEffect(() => {
-    const contracts = [
-      generateSeededData(isLeaked, 0),
-      generateSeededData(false, 1),
-      generateSeededData(false, 2),
-      generateSeededData(false, 3),
-      generateSeededData(false, 4)
-    ];
+    const contracts = CONTRACT_CONFIG.map((_, i) => generateSeededData(isLeaked, i));
     setAllContracts(contracts);
   }, [isLeaked]);
-
-  const activeContract = useMemo(() => allContracts[activeContractIndex], [allContracts, activeContractIndex]);
 
   // Calculate adjusted risk score based on timeline analysis
   const adjustedRiskScore = useMemo(() => {
@@ -93,44 +88,39 @@ export default function LeakLensDashboard() {
   useEffect(() => {
     if (!runAnalysis || !timelineResult || loading) return;
 
+    const relatedEvents = activeConfig?.relatedEvents ?? [];
+
     const runAdvancedAnalysis = async () => {
       setAdvancedLoading(true);
 
       try {
-        // Run all advanced analyses in parallel
         const [causalRes, crossRes, adversarialRes, expertRes] = await Promise.all([
-          // Causal Graph Generation
           fetch('/api/generate-causal-graph', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               narratives: classifications.map(c => c.reasoning).filter(Boolean),
-              market_events: [`Market drift at ${signalTraceData.drift_time}`, 'CPI prediction market volatility'],
+              market_events: [`Market drift at ${signalTraceData.drift_time}`, `${activeContract?.name ?? 'Market'} volatility`],
               posts: signalTraceData.posts.map(p => p.text)
             })
           }),
 
-          // Cross-Event Analysis
           fetch('/api/cross-event-analysis', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              primary_event: { type: 'CPI Release', drift_time: signalTraceData.drift_time },
-              related_events: [
-                { type: 'Fed Rate Decision', date: '2026-04-15' },
-                { type: 'Treasury Bond Auction', date: '2026-04-09' }
-              ],
+              primary_event: { type: activeContract?.name ?? activeConfig?.name ?? 'Event', drift_time: signalTraceData.drift_time },
+              related_events: relatedEvents,
               posts: signalTraceData.posts
             })
           }),
 
-          // Adversarial Simulation
           fetch('/api/adversarial-simulation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               market_structure: { type: 'prediction_market', liquidity: 'medium' },
-              information: 'Early CPI data showing higher than expected inflation',
+              information: activeContract?.description ?? 'Event disclosure',
               actual_pattern: {
                 posts: signalTraceData.posts.map(p => ({ text: p.text, timestamp: p.timestamp })),
                 drift_time: signalTraceData.drift_time
@@ -171,7 +161,7 @@ export default function LeakLensDashboard() {
     };
 
     runAdvancedAnalysis();
-  }, [runAnalysis, timelineResult, loading, classifications, signalTraceData]);
+  }, [runAnalysis, timelineResult, loading, classifications, signalTraceData, activeConfig, activeContract]);
 
   const handleSimulateLeak = () => {
     setIsLeaked(!isLeaked);
@@ -306,7 +296,11 @@ export default function LeakLensDashboard() {
                   </Card>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <TraderNetworkGraph analysis={activeContract} />
+                    <Card className="border-border/50 bg-card/30 rounded-2xl overflow-hidden shadow-2xl">
+                      <CardContent className="p-8">
+                        <AnomalyBreakdown analysis={activeContract} />
+                      </CardContent>
+                    </Card>
                     <SocialSignalPanel
                       classifications={classifications}
                       posts={signalTraceData.posts}
@@ -349,12 +343,6 @@ export default function LeakLensDashboard() {
                       ) : null}
                     </>
                   )}
-
-                  <Card className="border-border/50 bg-card/30 rounded-2xl overflow-hidden shadow-2xl">
-                    <CardContent className="p-8">
-                      <AnomalyBreakdown analysis={activeContract} />
-                    </CardContent>
-                  </Card>
 
                   {adjustedRiskScore > 60 && (
                     <Card className="border-destructive/30 bg-destructive/5 rounded-2xl border-dashed">
@@ -534,7 +522,7 @@ export default function LeakLensDashboard() {
                                   <div className="pt-3 border-t border-border/30">
                                     <div className="flex items-center justify-between">
                                       <span className="text-[10px] text-muted-foreground uppercase font-bold">Pattern Match</span>
-                                      <Badge variant={adversarialSim.similarity_score > 0.7 ? "destructive" : "secondary"} className="text-[9px]">
+                                      <Badge variant={adversarialSim.similarity_score > ADVERSARIAL_HIGH_RISK_SIMILARITY ? "destructive" : "secondary"} className="text-[9px]">
                                         {Math.round((adversarialSim.similarity_score || 0) * 100)}% Similar
                                       </Badge>
                                     </div>

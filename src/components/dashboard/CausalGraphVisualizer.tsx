@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useMemo } from 'react';
+import { CAUSAL_EDGE_STRONG_WEIGHT, CAUSAL_EDGE_MEDIUM_WEIGHT } from '@/lib/ui-thresholds';
 import ReactFlow, {
   Node,
   Edge,
@@ -106,20 +107,20 @@ export function CausalGraphVisualizer({ nodes, edges }: CausalGraphVisualizerPro
   const flowEdges: Edge[] = useMemo(() => {
     return edges.map((edge, index) => {
       const getEdgeColor = (weight: number) => {
-        if (weight >= 0.7) return 'rgb(239, 68, 68)'; // red - strong
-        if (weight >= 0.4) return 'rgb(253, 224, 71)'; // yellow - medium
-        return 'rgb(156, 163, 175)'; // gray - weak
+        if (weight >= CAUSAL_EDGE_STRONG_WEIGHT) return 'rgb(239, 68, 68)';
+        if (weight >= CAUSAL_EDGE_MEDIUM_WEIGHT) return 'rgb(253, 224, 71)';
+        return 'rgb(156, 163, 175)';
       };
 
       const color = getEdgeColor(edge.weight);
-      const strokeWidth = 1 + edge.weight * 3; // 1-4px based on weight
+      const strokeWidth = 1 + edge.weight * 3;
 
       return {
         id: `edge-${index}`,
         source: edge.from,
         target: edge.to,
         type: 'smoothstep',
-        animated: edge.weight > 0.7,
+        animated: edge.weight > CAUSAL_EDGE_STRONG_WEIGHT,
         label: `${Math.round(edge.weight * 100)}%`,
         labelStyle: {
           fill: color,

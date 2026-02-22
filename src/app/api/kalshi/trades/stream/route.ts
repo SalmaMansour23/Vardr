@@ -1,11 +1,9 @@
 import { NextRequest } from "next/server";
+import { POLL_INTERVAL_MS, MAX_SEEN_IDS, KALSHI_BASE_URL } from "../../../../../../app/lib/feature-config";
 
 export const dynamic = "force-dynamic";
 
-const KALSHI_TRADES_URL = "https://api.elections.kalshi.com/trade-api/v2/markets/trades";
-const POLL_INTERVAL_MS = 2000;
 const TRADES_PER_POLL = 100;
-const MAX_SEEN_IDS = 5000;
 
 interface KalshiTrade {
   trade_id: string;
@@ -38,7 +36,7 @@ export async function GET(request: NextRequest) {
 
       const poll = async () => {
         try {
-          const url = new URL(KALSHI_TRADES_URL);
+          const url = new URL(`${KALSHI_BASE_URL}/markets/trades`);
           url.searchParams.set("limit", String(TRADES_PER_POLL));
           if (ticker) url.searchParams.set("ticker", ticker);
 

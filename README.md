@@ -17,6 +17,15 @@ Market integrity risk dashboard for prediction markets. DriftX monitors informat
 - **Kalshi Live:** Live trades stream and Kalshi integration (trades, orders, fills, portfolio) when credentials are set
 - **Global overview:** Multi-contract market overview
 
+## Feature configuration
+
+Behavior and thresholds are configurable so you can tune detection and UI without changing code.
+
+- **Server (API routes):** `app/lib/feature-config.ts` – stream poll interval and max seen IDs, adversarial simulation time windows and thresholds, account risk profile windows and risk weights. Optional env overrides: `KALSHI_POLL_INTERVAL_MS`, `KALSHI_MAX_SEEN_IDS`, `ADVERSARIAL_SIMILARITY_THRESHOLD`, `RISK_WEIGHT_*`, `KALSHI_API_BASE_URL`, etc. (see `.env.local.example`).
+- **Contracts and scenario:** `src/lib/data-generator.ts` – `CONTRACT_CONFIG` (contract list, Kalshi tickers, event keywords, related events), demo timing constants, risk formula weights. Scenario (drift/announcement times, signal-trace event type) is derived from the active contract.
+- **UI risk display:** `src/lib/ui-thresholds.ts` – adversarial similarity badge threshold, causal graph edge weight cutoffs, social signal confidence threshold.
+- **API base URLs:** Set `OPEN_ROUTER_BASE_URL` and/or `KALSHI_API_BASE_URL` in `.env.local` to point at a proxy or staging endpoint.
+
 ## Project structure
 
 - `src/app/` – Next.js app router: `page.tsx` (main DriftX dashboard), `layout.tsx`, `globals.css`

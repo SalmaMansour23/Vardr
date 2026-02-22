@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { openRouterChat } from '../../lib/openrouter';
+import {
+  TEMPORAL_ALIGNMENT_WINDOW_MS,
+  CONCENTRATION_WINDOW_MS,
+  RISK_WEIGHTS,
+  RISK_CATEGORY_BOUNDARIES,
+} from '../../lib/feature-config';
 
 interface Trade {
   timestamp: string;
@@ -53,8 +59,7 @@ function computeRiskFeatures(
       const hasNearbySignal = public_signal_data.some(signal => {
         const signalTime = new Date(signal.timestamp).getTime();
         const timeDiff = Math.abs(tradeTime - signalTime);
-        // Within 30 minutes
-        return timeDiff < 30 * 60 * 1000;
+        return timeDiff < TEMPORAL_ALIGNMENT_WINDOW_MS;
       });
       if (hasNearbySignal) alignment_count++;
     });
@@ -68,11 +73,10 @@ function computeRiskFeatures(
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     
-    // Calculate position sizes in 1-hour windows
     const windowSizes: number[] = [];
     for (let i = 0; i < sortedTrades.length; i++) {
       const windowStart = new Date(sortedTrades[i].timestamp).getTime();
-      const windowEnd = windowStart + (60 * 60 * 1000); // 1 hour
+      const windowEnd = windowStart + CONCENTRATION_WINDOW_MS;
       
       let windowVolume = 0;
       for (let j = i; j < sortedTrades.length; j++) {
@@ -169,10 +173,11 @@ async function callNemotron(prompt: string): Promise<string> {
  * Determines risk category based on composite risk score
  */
 function determineRiskCategory(risk_score: number): string {
-  if (risk_score >= 80) return 'Critical Risk';
-  if (risk_score >= 60) return 'High Risk';
-  if (risk_score >= 40) return 'Moderate Risk';
-  if (risk_score >= 20) return 'Low Risk';
+  const { critical, high, moderate, low } = RISK_CATEGORY_BOUNDARIES;
+  if (risk_score >= critical) return 'Critical Risk';
+  if (risk_score >= high) return 'High Risk';
+  if (risk_score >= moderate) return 'Moderate Risk';
+  if (risk_score >= low) return 'Low Risk';
   return 'Minimal Risk';
 }
 
@@ -180,21 +185,13 @@ function determineRiskCategory(risk_score: number): string {
  * Calculates composite risk score from features
  */
 function calculateRiskScore(features: RiskFeatures): number {
-  // Weighted average of features
-  const weights = {
-    temporal_alignment_score: 0.30,
-    position_concentration: 0.20,
-    timing_precision: 0.15,
-    cross_event_exposure: 0.20,
-    signal_correlation: 0.15
-  };
-
-  const score = 
-    features.temporal_alignment_score * weights.temporal_alignment_score +
-    features.position_concentration * weights.position_concentration +
-    features.timing_precision * weights.timing_precision +
-    features.cross_event_exposure * weights.cross_event_exposure +
-    features.signal_correlation * weights.signal_correlation;
+  const w = RISK_WEIGHTS;
+  const score =
+    features.temporal_alignment_score * w.temporal_alignment_score +
+    features.position_concentration * w.position_concentration +
+    features.timing_precision * w.timing_precision +
+    features.cross_event_exposure * w.cross_event_exposure +
+    features.signal_correlation * w.signal_correlation;
 
   return Math.round(score * 10) / 10;
 }

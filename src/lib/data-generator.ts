@@ -82,54 +82,96 @@ export const NAMED_TRADERS = [
   'Trader_Zenith'
 ];
 
-/**
- * Real Kalshi market tickers, verified via API (api.elections.kalshi.com).
- * Contract 3 has no NVIDIA stock market on Kalshi; CHINAUSGDP-30 is used as economics proxy.
- * Contract 5 is high-volume (300k+ trades/24h) for showcasing the live trade stream.
- */
-const CONTRACT_KALSHI_TICKERS = [
-  'KXFEDDECISION-26MAR-C25',       // Fed Cut 25bps at March 2026 meeting (Fed Rate Cut)
-  'KXCPI-26APR-T0.5',              // CPI rise more than 0.5% in April 2026 (closest to US CPI April 2026)
-  'CHINAUSGDP-30',                 // China overtake US GDP by 2030 (no NVIDIA market; economics proxy)
-  'KXTARIFFRATEPRC-26JUL01-34',    // US tariff rate on China 30-39.99% on Jul 1, 2026 (US-China trade policy)
-  'KXFEDDECISION-26MAR-H0',        // Fed maintains rate March 2026 (high volume, for stream showcase)
-];
+const MS_PER_MINUTE = 60 * 1000;
 
-const CONTRACT_TEMPLATES = [
+export interface RelatedEvent {
+  type: string;
+  date: string;
+}
+
+export interface ContractConfigItem {
+  id: string;
+  name: string;
+  description: string;
+  kalshiTicker: string;
+  announcementOffsetMinutes: number;
+  eventKeyword: string;
+  relatedEvents: RelatedEvent[];
+}
+
+export const CONTRACT_CONFIG: ContractConfigItem[] = [
   {
     id: 'FED-MAR-2026',
     name: 'Fed Rate Cut (March 2026)',
     description: 'Will the Fed cut rates in March 2026?',
-    announcementOffset: 15 * 60000,
+    kalshiTicker: 'KXFEDDECISION-26MAR-C25',
+    announcementOffsetMinutes: 15,
+    eventKeyword: 'fed',
+    relatedEvents: [{ type: 'CPI Release', date: '2026-03-15' }, { type: 'Jobs Report', date: '2026-03-06' }],
   },
   {
     id: 'CPI-APR-2026',
     name: 'US CPI > 3.5% (April 2026)',
     description: 'Will US CPI exceed 3.5% in April 2026?',
-    announcementOffset: 25 * 60000,
+    kalshiTicker: 'KXCPI-26APR-T0.5',
+    announcementOffsetMinutes: 25,
+    eventKeyword: 'cpi',
+    relatedEvents: [{ type: 'Fed Rate Decision', date: '2026-04-15' }, { type: 'Treasury Bond Auction', date: '2026-04-09' }],
   },
   {
     id: 'NVDA-Q1-2026',
     name: 'NVIDIA > $950 (Q1 2026)',
     description: 'Will NVIDIA stock close above $950 after Q1 2026 earnings?',
-    announcementOffset: 45 * 60000,
+    kalshiTicker: 'CHINAUSGDP-30',
+    announcementOffsetMinutes: 45,
+    eventKeyword: 'earnings',
+    relatedEvents: [{ type: 'Tech Sector CPI', date: '2026-04-10' }],
   },
   {
     id: 'TRADE-JUL-2026',
     name: 'US-China Trade Deal',
     description: 'Will a US–China trade agreement be announced before July 1, 2026?',
-    announcementOffset: 60 * 60000,
+    kalshiTicker: 'KXTARIFFRATEPRC-26JUL01-34',
+    announcementOffsetMinutes: 60,
+    eventKeyword: 'trade',
+    relatedEvents: [{ type: 'G7 Summit', date: '2026-06-15' }],
   },
   {
     id: 'FED-MAR-2026-H0',
     name: 'Fed Maintains Rate (March 2026)',
     description: 'Will the Fed keep rates unchanged at the March 2026 meeting? High-volume market for live stream demo.',
-    announcementOffset: 15 * 60000,
-  }
+    kalshiTicker: 'KXFEDDECISION-26MAR-H0',
+    announcementOffsetMinutes: 15,
+    eventKeyword: 'fed',
+    relatedEvents: [{ type: 'CPI Release', date: '2026-03-15' }],
+  },
 ];
 
+const PRE_EVENT_WINDOW_MINUTES = 10;
+const PRE_EVENT_IS_PRE_MINUTES = 30;
+const DEMO_DRIFT_MINUTES_BEFORE_ANNOUNCEMENT = 7;
+const INITIAL_PROB = 0.5;
+const DRIFT_PRE = 0.02;
+const DRIFT_RANDOM_MAGNITUDE = 0.008;
+const LEAK_ATLAS_PROB = 0.3;
+const PRE_SENTIMENT = 0.8;
+const TRADE_JITTER_MS = 30000;
+const MARKET_HISTORY_MINUTES = 100;
+const DATA_POINTS = 120;
+
+const RISK_FORMULA_WEIGHTS = {
+  drift: 0.15,
+  imbalance: 0.1,
+  volume: 0.1,
+  sequence: 0.15,
+  preEvent: 0.15,
+  crossEvent: 0.1,
+  leadLag: 0.15,
+  social: 0.1,
+} as const;
+
 const SOCIAL_SAMPLES = [
-  "Something big coming tomorrow morning 👀",
+  "Something big coming tomorrow morning",
   "Rates decision going to surprise markets.",
   "Trade deal rumors heating up.",
   "Watching the CPI print closely, asymmetry detected.",
@@ -137,30 +179,52 @@ const SOCIAL_SAMPLES = [
   "Heavy positioning in the front-end before the announcement."
 ];
 
+export const SIGNAL_TRACE_HOURS_BEFORE_EVENT = 15;
+
+export function getScenarioTimes(contract: { announcementTime: number }): { drift_time: string; announcement_time: string } {
+  const announcementTime = contract.announcementTime;
+  const driftTime = announcementTime - DEMO_DRIFT_MINUTES_BEFORE_ANNOUNCEMENT * MS_PER_MINUTE;
+  return {
+    drift_time: new Date(driftTime).toISOString().slice(0, 19).replace('T', 'T'),
+    announcement_time: new Date(announcementTime).toISOString().slice(0, 19).replace('T', 'T'),
+  };
+}
+
+export function getContractConfig(templateIndex: number): ContractConfigItem | undefined {
+  if (templateIndex < 0 || templateIndex >= CONTRACT_CONFIG.length) return undefined;
+  return CONTRACT_CONFIG[templateIndex];
+}
+
 export function generateSeededData(leaked: boolean = false, templateIndex: number = 0): Contract {
-  const template = CONTRACT_TEMPLATES[templateIndex];
+  const template = CONTRACT_CONFIG[templateIndex];
+  if (!template) {
+    const fallback = CONTRACT_CONFIG[0];
+    if (!fallback) throw new Error('CONTRACT_CONFIG is empty');
+    return generateSeededData(leaked, 0);
+  }
+
+  const announcementOffsetMs = template.announcementOffsetMinutes * MS_PER_MINUTE;
   const data: TradeData[] = [];
   const trades: Trade[] = [];
-  const announcementTime = Date.now() + template.announcementOffset;
-  const marketStartTime = Date.now() - 100 * 60000;
-  
-  let currentProb = 0.5;
-  const points = 120;
+  const announcementTime = Date.now() + announcementOffsetMs;
+  const marketStartTime = Date.now() - MARKET_HISTORY_MINUTES * MS_PER_MINUTE;
 
-  for (let i = 0; i < points; i++) {
-    const timestamp = marketStartTime + i * 60000;
-    const isPreEventWindow = leaked && timestamp > announcementTime - 10 * 60000 && timestamp < announcementTime;
-    
-    // Simulate drift
-    const drift = isPreEventWindow ? 0.02 : (Math.random() - 0.5) * 0.008;
+  let currentProb = INITIAL_PROB;
+  const preEventWindowMs = PRE_EVENT_WINDOW_MINUTES * MS_PER_MINUTE;
+  const preEventIsPreMs = PRE_EVENT_IS_PRE_MINUTES * MS_PER_MINUTE;
+
+  for (let i = 0; i < DATA_POINTS; i++) {
+    const timestamp = marketStartTime + i * MS_PER_MINUTE;
+    const isPreEventWindow = leaked && timestamp > announcementTime - preEventWindowMs && timestamp < announcementTime;
+
+    const drift = isPreEventWindow ? DRIFT_PRE : (Math.random() - 0.5) * DRIFT_RANDOM_MAGNITUDE;
     currentProb = Math.max(0.01, Math.min(0.99, currentProb + drift));
-    
+
     const buyVol = Math.floor(Math.random() * 800) + (isPreEventWindow ? 8000 : 0);
     const sellVol = Math.floor(Math.random() * 800);
-    
-    // Assign "Atlas" to the suspicious pre-event window if leaked
-    const traderId = isPreEventWindow 
-      ? (Math.random() > 0.3 ? 'Trader_Atlas' : NAMED_TRADERS[Math.floor(Math.random() * NAMED_TRADERS.length)])
+
+    const traderId = isPreEventWindow
+      ? (Math.random() > LEAK_ATLAS_PROB ? 'Trader_Atlas' : NAMED_TRADERS[Math.floor(Math.random() * NAMED_TRADERS.length)])
       : NAMED_TRADERS[Math.floor(Math.random() * NAMED_TRADERS.length)];
 
     data.push({
@@ -170,11 +234,11 @@ export function generateSeededData(leaked: boolean = false, templateIndex: numbe
       sellVolume: sellVol,
       traderId,
       isAnomaly: isPreEventWindow,
-      sentiment: isPreEventWindow ? 0.8 : (Math.random() - 0.5) * 0.2
+      sentiment: isPreEventWindow ? PRE_SENTIMENT : (Math.random() - 0.5) * 0.2
     });
 
-    const tradeTimestamp = timestamp + (Math.random() - 0.5) * 30000;
-    const minsToEvent = Math.round((announcementTime - tradeTimestamp) / 60000);
+    const tradeTimestamp = timestamp + (Math.random() - 0.5) * TRADE_JITTER_MS;
+    const minsToEvent = Math.round((announcementTime - tradeTimestamp) / MS_PER_MINUTE);
 
     trades.push({
       tradeId: `TR-${Math.random().toString(36).substr(2, 9)}`,
@@ -185,7 +249,7 @@ export function generateSeededData(leaked: boolean = false, templateIndex: numbe
       price: Number(currentProb.toFixed(2)),
       size: Math.floor(Math.random() * 400) + (isPreEventWindow ? 3000 : 0),
       isAnomaly: isPreEventWindow,
-      isPreEvent: tradeTimestamp < announcementTime && tradeTimestamp > announcementTime - 30 * 60000,
+      isPreEvent: tradeTimestamp < announcementTime && tradeTimestamp > announcementTime - preEventIsPreMs,
       relativeTimeStr: minsToEvent > 0 ? `-${minsToEvent}m` : `+${Math.abs(minsToEvent)}m`
     });
   }
@@ -194,20 +258,19 @@ export function generateSeededData(leaked: boolean = false, templateIndex: numbe
     id: `SOC-${i}`,
     author: `User_${Math.floor(Math.random() * 1000)}`,
     text: SOCIAL_SAMPLES[Math.floor(Math.random() * SOCIAL_SAMPLES.length)],
-    timestamp: announcementTime - (15 - i) * 60000,
+    timestamp: announcementTime - (15 - i) * MS_PER_MINUTE,
     sentiment: leaked ? 'positive' : 'neutral',
     impact: leaked ? 'high' : 'low'
   }));
 
   const analysis = analyzeData(data, leaked);
 
-  const kalshiTicker = CONTRACT_KALSHI_TICKERS[templateIndex] ?? '';
   return {
     ...analysis,
     id: template.id,
     name: template.name,
     description: template.description,
-    kalshiTicker,
+    kalshiTicker: template.kalshiTicker,
     announcementTime,
     currentPrice: currentProb,
     preEventVolumePct: Math.round((trades.filter(t => t.isPreEvent).reduce((a, b) => a + b.size, 0) / trades.reduce((a, b) => a + b.size, 1)) * 100),
@@ -269,15 +332,16 @@ export function analyzeData(data: TradeData[], leaked: boolean): RiskAnalysis {
   const leadLag = leaked ? 92 : 4;
   const social = leaked ? 68 : 12;
 
+  const w = RISK_FORMULA_WEIGHTS;
   const riskScore = Math.round(
-    (drift * 0.15) + 
-    (imbalance * 0.1) + 
-    (volume * 0.1) + 
-    (sequence * 0.15) + 
-    (preEvent * 0.15) + 
-    (crossEvent * 0.1) + 
-    (leadLag * 0.15) + 
-    (social * 0.1)
+    drift * w.drift +
+    imbalance * w.imbalance +
+    volume * w.volume +
+    sequence * w.sequence +
+    preEvent * w.preEvent +
+    crossEvent * w.crossEvent +
+    leadLag * w.leadLag +
+    social * w.social
   );
 
   return {
