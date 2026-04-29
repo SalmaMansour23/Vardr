@@ -19,13 +19,13 @@ Market integrity and insider-risk dashboard for prediction markets. Vardr monito
 
 ## ML Insider pipeline (backend scoring)
 
-Scored trades and market rollups are produced by a Python pipeline in this repo. Run from the repo root:
+This repo does not use a root `main.py`. The backend scoring pipeline is launched from the Python module entrypoint:
 
 ```bash
 python -m ml_insider.cli run-all
 ```
 
-This ingests Kalshi and Polymarket data, builds a unified events table, trains anomaly (and optionally supervised) models, scores trades, and writes:
+That command ingests Kalshi and Polymarket data, builds a unified events table, trains anomaly (and optionally supervised) models, scores trades, and writes:
 
 - `reports/suspicious_24h.csv`, `suspicious_7d.csv`, `suspicious_30d.csv`, `suspicious_all.csv`
 - `reports/suspicious_*_markets.csv`
@@ -89,6 +89,14 @@ The Next.js app reads these files via the API routes above. See [docs/ML_INSIDER
 4. **Flagged Bets / ML Insider data**
 
    The Flagged Bets tab and insider APIs use CSV reports written by the ML Insider pipeline. Run the pipeline at least once from the repo root so `reports/` and `artifacts/latest/` exist (see [ML Insider pipeline](#ml-insider-pipeline-backend-scoring) and [docs/ML_INSIDER_APP.md](docs/ML_INSIDER_APP.md)).
+
+For a local Polymarket-only pipeline that does not require Kalshi credentials, use:
+
+```bash
+python -m ml_insider.cli run-polymarket-only
+```
+
+This command ingests public Polymarket Gamma + Data API data only, builds the event table, trains models, and writes the same report CSVs.
 
 ## Scripts
 

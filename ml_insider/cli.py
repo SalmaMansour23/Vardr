@@ -86,10 +86,45 @@ def cmd_run_all(labels_path: Path | None = None) -> None:
     print("======================================")
 
 
+def cmd_run_polymarket_only(labels_path: Path | None = None) -> None:
+    from ml_insider.ingest.run_ingest import run_polymarket_only
+
+    try:
+        run_polymarket_only(RAW_DIR)
+    except Exception as e:
+        print("polymarket-only ingest failed: %s" % e, file=sys.stderr)
+        print("(Later steps depend on ingest; fix the error above and re-run.)", file=sys.stderr)
+        sys.exit(1)
+    try:
+        cmd_build(labels_path=labels_path)
+    except Exception as e:
+        print("build failed: %s" % e, file=sys.stderr)
+        print("(CSVs will not be updated until build and later steps succeed.)", file=sys.stderr)
+        sys.exit(1)
+    try:
+        cmd_train()
+    except Exception as e:
+        print("train failed: %s" % e, file=sys.stderr)
+        print("(CSVs will not be updated until train and score succeed.)", file=sys.stderr)
+        sys.exit(1)
+    try:
+        cmd_score()
+    except Exception as e:
+        print("score failed: %s" % e, file=sys.stderr)
+        print("(Report CSVs are written by the score step; fix the error above and re-run score or run-all.)", file=sys.stderr)
+        sys.exit(1)
+    print("")
+    print("========== RUN-POLYMARKET-ONLY COMPLETE ==========")
+    reports_abs = REPORTS_DIR.resolve()
+    print("Reports directory: %s" % reports_abs)
+    print("  suspicious_24h.csv, suspicious_7d.csv, suspicious_30d.csv, suspicious_all.csv")
+    print("==========================================")
+
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="ml_insider: insider-trading detection pipeline")
-    parser.add_argument("command", choices=["ingest", "build", "train", "score", "report", "run-all"])
+    parser.add_argument("command", choices=["ingest", "build", "train", "score", "report", "run-all", "run-polymarket-only"])
     parser.add_argument("--labels-path", type=Path, default=None, help="CSV with market_id, ts, flagged (for build)")
     args = parser.parse_args()
     if args.command == "ingest":
@@ -104,6 +139,8 @@ def main() -> None:
         cmd_report()
     elif args.command == "run-all":
         cmd_run_all(labels_path=args.labels_path)
+    elif args.command == "run-polymarket-only":
+        cmd_run_polymarket_only(labels_path=args.labels_path)
     else:
         parser.error("unknown command")
 

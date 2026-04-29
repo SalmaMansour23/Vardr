@@ -8,7 +8,7 @@ function toPositiveInt(value: string | undefined, fallback: number): number {
 }
 
 export default function Page() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
   const aiIntelBaseUrl =
     process.env.AI_INTEL_BASE_URL || process.env.NEXT_PUBLIC_AI_INTEL_BASE_URL || "";
   const refreshSeconds = toPositiveInt(

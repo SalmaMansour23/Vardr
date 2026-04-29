@@ -47,3 +47,24 @@ def run_ingest(raw_dir: Path | None = None) -> None:
         else:
             raise
     log.info("Ingest complete: %s", raw_dir)
+
+
+def run_polymarket_only(raw_dir: Path | None = None) -> None:
+    raw_dir = raw_dir or DEFAULT_RAW_DIR
+    raw_dir = Path(raw_dir)
+    try:
+        run_polymarket_ingest(raw_dir)
+    except Exception as e:
+        log.warning("Polymarket markets ingest failed: %s. Continuing with other sources.", e)
+    try:
+        run_polymarket_trades_ingest(raw_dir)
+    except Exception as e:
+        log.warning("Polymarket trades ingest failed: %s. Continuing with other sources.", e)
+    try:
+        run_polysights_ingest(raw_dir)
+    except Exception as e:
+        log.warning(
+            "Polysights ingest failed (optional): %s. Install playwright and run 'playwright install chromium' if you need Polysights.",
+            e,
+        )
+    log.info("Polymarket-only ingest complete: %s", raw_dir)

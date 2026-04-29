@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ml_insider.context.leak_plausibility import add_leak_plausibility
@@ -25,6 +26,10 @@ MIN_FLAGGED_PER_DAY = int(os.getenv("ML_INSIDER_MIN_FLAGGED_PER_DAY", "0"))
 PLAUSIBILITY_AUDIT_ENABLED = os.getenv("ML_INSIDER_PLAUSIBILITY_AUDIT", "1").strip().lower() in ("1", "true", "yes")
 PLAUSIBILITY_AUDIT_SAMPLE = int(os.getenv("ML_INSIDER_PLAUSIBILITY_AUDIT_SAMPLE", "20000"))
 MARKET_CROWDING_ALPHA = float(os.getenv("ML_INSIDER_MARKET_CROWDING_ALPHA", "0.15"))
+MIN_RECENT_MARKET_TRADES = int(os.getenv("ML_INSIDER_MIN_RECENT_MARKET_TRADES", "10"))
+MAX_LIQUIDITY_IMPACT_FOR_ENTRY = float(os.getenv("ML_INSIDER_MAX_LIQUIDITY_IMPACT_FOR_ENTRY", "0.5"))
+MIN_RECENT_TRADES_15M = int(os.getenv("ML_INSIDER_MIN_RECENT_TRADES_15M", "3"))
+MIN_RECENT_TRADES_1H = int(os.getenv("ML_INSIDER_MIN_RECENT_TRADES_1H", "5"))
 OUTPUT_COLUMNS = [
     "ts",
     "platform",
@@ -105,10 +110,63 @@ def _drop_duplicate_source_trades(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return out, int(dropped)
 
 
+def _compute_grouped_trade_counts(df: pd.DataFrame, window: str) -> pd.Series:
+    out = pd.Series(index=df.index, dtype=float)
+    for _, grp in df.groupby(["platform", "market_id"], sort=False):
+        grp = grp.sort_values("ts")
+        ts = pd.to_datetime(grp["ts"], errors="coerce")
+        counts = pd.Series(1.0, index=ts).rolling(window).sum().fillna(0.0).values
+        out.loc[grp.index] = counts
+    return out.fillna(0.0)
+
+
+def _filter_entry_feasible_markets(market_rollup: pd.DataFrame) -> pd.DataFrame | None:
+    """
+    Filter market rollup to include only markets with:
+    - Recent trade activity (market_trade_count)
+    - Reasonable liquidity impact (avg_liquidity_impact)
+    - Spike in 15m or 1h trade count (if columns exist)
+    
+    Returns None if required columns or activity metrics are missing.
+    """
+    if market_rollup.empty:
+        return market_rollup
+
+    required_cols = ["market_trade_count", "avg_liquidity_impact"]
+    missing = [c for c in required_cols if c not in market_rollup.columns]
+    if missing:
+        print(
+            "Warning: Cannot compute entry-feasible markets; missing required columns: %s. Skipping filtered output."
+            % missing
+        )
+        return None
+
+    has_trade_counts = (
+        "max_trade_count_15m" in market_rollup.columns
+        and "max_trade_count_1h" in market_rollup.columns
+    )
+    if not has_trade_counts:
+        print(
+            "Warning: Cannot compute entry-feasible markets; missing trade count metrics (max_trade_count_15m, max_trade_count_1h). Skipping filtered output."
+        )
+        return None
+
+    mask = (
+        (market_rollup["market_trade_count"] >= MIN_RECENT_MARKET_TRADES)
+        & (market_rollup["avg_liquidity_impact"] <= MAX_LIQUIDITY_IMPACT_FOR_ENTRY)
+        & (
+            (market_rollup["max_trade_count_15m"] >= MIN_RECENT_TRADES_15M)
+            | (market_rollup["max_trade_count_1h"] >= MIN_RECENT_TRADES_1H)
+        )
+    )
+    return market_rollup.loc[mask].copy()
+
+
 def _build_market_rollup(trades_df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate trade-level alerts into one row per (platform, market_id).
     Uses max-risk trade as the representative row for title/context fields.
+    Conditionally includes trade_count_15m/1h metrics if they exist.
     """
     if trades_df.empty:
         return pd.DataFrame(
@@ -117,12 +175,19 @@ def _build_market_rollup(trades_df: pd.DataFrame) -> pd.DataFrame:
                 "market_id",
                 "market_title",
                 "latest_ts",
+                "current_price",
+                "price_change_1h",
+                "price_change_24h",
+                "recent_volume",
+                "leader_score",
                 "market_trade_count",
                 "investigate_trade_count",
                 "watchlist_trade_count",
                 "max_raw_risk",
                 "max_risk_score",
                 "mean_risk_score",
+                "avg_liquidity_impact",
+                "max_liquidity_impact",
                 "market_band",
                 "info_susceptibility_score",
                 "info_susceptibility_bucket",
@@ -147,20 +212,72 @@ def _build_market_rollup(trades_df: pd.DataFrame) -> pd.DataFrame:
         .loc[:, rep_cols]
         .rename(columns={"band": "market_band"})
     )
-    agg = (
-        trades_df.groupby(key_cols, as_index=False)
-        .agg(
-            latest_ts=("ts", "max"),
-            market_trade_count=("market_id", "size"),
-            investigate_trade_count=("band", lambda s: int((s == "INVESTIGATE").sum())),
-            watchlist_trade_count=("band", lambda s: int((s == "WATCHLIST").sum())),
-            max_raw_risk=("raw_risk", "max"),
-            max_risk_score=("risk_score", "max"),
-            mean_risk_score=("risk_score", "mean"),
-        )
+    
+    agg_dict = dict(
+        latest_ts=("ts", "max"),
+        market_trade_count=("market_id", "size"),
+        investigate_trade_count=("band", lambda s: int((s == "INVESTIGATE").sum())),
+        watchlist_trade_count=("band", lambda s: int((s == "WATCHLIST").sum())),
+        max_raw_risk=("raw_risk", "max"),
+        max_risk_score=("risk_score", "max"),
+        mean_risk_score=("risk_score", "mean"),
+        avg_liquidity_impact=("liquidity_impact", "mean"),
+        max_liquidity_impact=("liquidity_impact", "max"),
     )
+    
+    if "trade_count_15m" in trades_df.columns:
+        agg_dict["max_trade_count_15m"] = ("trade_count_15m", "max")
+    if "trade_count_1h" in trades_df.columns:
+        agg_dict["max_trade_count_1h"] = ("trade_count_1h", "max")
+    
+    agg = trades_df.groupby(key_cols, as_index=False).agg(**agg_dict)
     out = agg.merge(rep, on=key_cols, how="left")
-    return out.sort_values("max_risk_score", ascending=False).reset_index(drop=True)
+
+    leader_rows = []
+    for keys, grp in trades_df.groupby(key_cols, sort=False):
+        platform, market_id = keys
+        grp = grp.copy()
+        grp["ts"] = pd.to_datetime(grp["ts"], errors="coerce")
+        grp["price"] = pd.to_numeric(grp["price"], errors="coerce")
+        grp["trade_size"] = pd.to_numeric(grp["trade_size"], errors="coerce")
+        grp = grp.dropna(subset=["ts", "price"]).sort_values("ts")
+
+        if grp.empty:
+            current_price = np.nan
+            price_change_1h = np.nan
+            price_change_24h = np.nan
+            recent_volume = 0.0
+            leader_score = 0.0
+        else:
+            latest_ts = grp["ts"].max()
+            current_price = float(grp.iloc[-1]["price"])
+            window_1h = grp[grp["ts"] >= latest_ts - pd.Timedelta(hours=1)]
+            window_24h = grp[grp["ts"] >= latest_ts - pd.Timedelta(hours=24)]
+            base_1h = window_1h.iloc[0]["price"] if not window_1h.empty else grp.iloc[0]["price"]
+            base_24h = window_24h.iloc[0]["price"] if not window_24h.empty else grp.iloc[0]["price"]
+            price_change_1h = float(current_price - base_1h)
+            price_change_24h = float(current_price - base_24h)
+            if grp["trade_size"].notna().any():
+                recent_volume = float(grp["trade_size"].fillna(0).sum())
+            else:
+                recent_volume = float(len(grp))
+            leader_score = float(abs(price_change_1h) * np.log1p(max(recent_volume, 0.0)))
+
+        leader_rows.append(
+            {
+                "platform": platform,
+                "market_id": market_id,
+                "current_price": current_price,
+                "price_change_1h": price_change_1h,
+                "price_change_24h": price_change_24h,
+                "recent_volume": recent_volume,
+                "leader_score": leader_score,
+            }
+        )
+
+    leader = pd.DataFrame(leader_rows)
+    out = out.merge(leader, on=key_cols, how="left")
+    return out.sort_values("leader_score", ascending=False).reset_index(drop=True)
 
 
 def run_score(
@@ -248,6 +365,10 @@ def run_score(
                 float(df["market_crowding_multiplier"].min()),
             )
         )
+
+    df = df.sort_values(["platform", "market_id", "ts"]).reset_index(drop=True)
+    df["trade_count_15m"] = _compute_grouped_trade_counts(df, "15min")
+    df["trade_count_1h"] = _compute_grouped_trade_counts(df, "1h")
 
     # Bands are always applied on risk_score to align with frontend and threshold selection.
     df["band"] = "LOW"
@@ -337,6 +458,15 @@ def run_score(
         market_path = (reports_dir / ("suspicious_%s_markets.csv" % name)).resolve()
         market_rollup.to_csv(market_path, index=False)
         print("Saved %s markets: %d rows -> %s" % (name, len(market_rollup), market_path))
+        if name == "24h":
+            entry_feasible = _filter_entry_feasible_markets(market_rollup)
+            if entry_feasible is not None:
+                entry_path = (reports_dir / "suspicious_24h_entry_feasible_markets.csv").resolve()
+                entry_feasible.to_csv(entry_path, index=False)
+                print(
+                    "Saved 24h entry-feasible lagging markets: %d rows -> %s"
+                    % (len(entry_feasible), entry_path)
+                )
     # All events (no time filter)
     sort_col = "risk_score" if "risk_score" in df.columns else "anomaly_score"
     all_events = df.sort_values(sort_col, ascending=False)
