@@ -6,17 +6,11 @@ export type UiBandMode = "INVESTIGATE_ONLY" | "WATCHLIST_PLUS" | "INCLUDE_LOW";
 
 export type SuspiciousRow = {
   ts?: string;
-  latest_ts?: string;
   day_utc?: string;
   platform?: string;
   market_id?: string;
   market_title?: string;
   risk_score?: number | null;
-  current_price?: number | null;
-  price_change_1h?: number | null;
-  price_change_24h?: number | null;
-  recent_volume?: number | null;
-  leader_score?: number | null;
   raw_risk?: number | null;
   anomaly_score?: number | null;
   p_informed?: number | null;

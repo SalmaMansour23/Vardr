@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { formatDate, formatPercent } from "@/lib/format";
+import { formatAmount, formatDate, formatPercent } from "@/lib/format";
 import { getAiIntelUrl, getPlatformUrl } from "@/lib/links";
-import type { SuspiciousRow, WindowKey } from "@/lib/types";
+import type { FeedBand, SuspiciousRow, UiBandMode, WindowKey } from "@/lib/types";
 
 type Props = {
   apiBaseUrl: string;
@@ -18,103 +18,39 @@ const WINDOW_OPTIONS: Array<{ key: WindowKey; label: string }> = [
   { key: "30d", label: "30d" },
 ];
 
-const DEFAULT_VISIBLE_COUNT = 10;
-const SHOW_MORE_INCREMENT = 10;
-const API_ROW_LIMIT = 1000;
+const LIMIT_OPTIONS = [200, 500, 1000, 2000, 5000];
 
-const TITLE_STOP_WORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "at",
-  "be",
-  "before",
-  "by",
-  "for",
-  "from",
-  "in",
-  "is",
-  "of",
-  "on",
-  "or",
-  "than",
-  "the",
-  "to",
-  "will",
-  "with",
-]);
-
-function formatSignedPercent(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "--";
-  }
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${(value * 100).toFixed(2)}pp`;
+function bandColor(band: string | undefined): string {
+  const value = (band || "").toUpperCase();
+  if (value === "INVESTIGATE") return "bg-rose-100 text-rose-800 border-rose-300";
+  if (value === "WATCHLIST" || value === "WATCHLIST_QUOTA") return "bg-amber-100 text-amber-800 border-amber-300";
+  return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
-function formatAmount(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "--";
-  }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+function mapModeToBand(mode: UiBandMode): FeedBand {
+  if (mode === "INVESTIGATE_ONLY") return "INVESTIGATE";
+  if (mode === "WATCHLIST_PLUS") return "WATCHLIST";
+  return "ALL";
 }
 
-function titleTokens(title: string | undefined): string[] {
-  return (title || "")
-    .toLowerCase()
-    .replace(/[\u2019']/g, "")
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/\b(?:more|less)\s+than\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\b/g, " ")
-    .replace(/\bbetween\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\s+and\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\b/g, " ")
-    .replace(/\b(?:at\s+least|at\s+most|over|under|above|below)\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\b/g, " ")
-    .replace(/[<>]=?\s*\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?/g, " ")
-    .replace(/\b(?:by|before|after)\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?\b/g, " ")
-    .replace(/\b(?:by|before|after)\s+gta\s+vi\b/g, " ")
-    .replace(/\b(?:by|before|after)\s+\d{4}\b/g, " ")
-    .replace(/\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?/g, " ")
-    .replace(/\belections\b/g, "election")
-    .replace(/\bprimaries\b/g, "primary")
-    .replace(/\binvades\b/g, "invade")
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 1 && !TITLE_STOP_WORDS.has(token));
-}
-
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0;
-  let intersection = 0;
-  for (const token of a) {
-    if (b.has(token)) intersection++;
+function parseReasons(raw: string | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+  } catch {
+    return [raw];
   }
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
-function dedupeSimilarTitles(rows: SuspiciousRow[]): SuspiciousRow[] {
-  const groups: Array<{ key: string; tokens: Set<string> }> = [];
-  const out: SuspiciousRow[] = [];
-
-  for (const row of rows) {
-    const tokens = new Set(titleTokens(row.market_title));
-    const key = [...tokens].join(" ");
-    const duplicate = groups.some((group) => key && (group.key === key || jaccardSimilarity(tokens, group.tokens) >= 0.55));
-    if (duplicate) continue;
-    groups.push({ key: key || row.market_id || String(out.length), tokens });
-    out.push(row);
-  }
-
-  return out;
 }
 
 export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSeconds }: Props) {
   const [windowKey, setWindowKey] = useState<WindowKey>("24h");
-  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_COUNT);
+  const [mode, setMode] = useState<UiBandMode>("WATCHLIST_PLUS");
+  const [limit, setLimit] = useState<number>(200);
   const [search, setSearch] = useState("");
-  const [minLeaderScore, setMinLeaderScore] = useState("");
-  const [minRecentVolume, setMinRecentVolume] = useState("");
-  const [dedupeTitles, setDedupeTitles] = useState(false);
+  const [minBetAmount, setMinBetAmount] = useState("");
+  const [maxBetAmount, setMaxBetAmount] = useState("");
+  const [sortDescending, setSortDescending] = useState(true);
   const [rows, setRows] = useState<SuspiciousRow[]>([]);
   const [selected, setSelected] = useState<SuspiciousRow | null>(null);
   const [error, setError] = useState<string>("");
@@ -122,52 +58,26 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   const loadRows = useCallback(async () => {
-    const makeUrl = (base: string | null): string => {
-      const params = new URLSearchParams();
-      params.set("window", windowKey);
-      params.set("limit", String(API_ROW_LIMIT));
-      if (base && base.trim()) {
-        const u = new URL(`${base.replace(/\/$/, "")}/api/suspicious-markets`);
-        u.search = params.toString();
-        return u.toString();
-      }
-      return `/api/suspicious-markets?${params.toString()}`;
-    };
-    const requestUrls = apiBaseUrl ? [makeUrl(apiBaseUrl), makeUrl(null)] : [makeUrl(null)];
+    const band = mapModeToBand(mode);
+    const u = new URL(`${apiBaseUrl.replace(/\/$/, "")}/api/suspicious`);
+    u.searchParams.set("window", windowKey);
+    u.searchParams.set("band", band);
+    u.searchParams.set("limit", String(limit));
 
     setLoading(true);
     setError("");
     try {
-      let payload: unknown = null;
-      let ok = false;
-      let lastErr: Error | null = null;
-      for (const requestUrl of requestUrls) {
-        try {
-          const res = await fetch(requestUrl, { cache: "no-store" });
-          const parsed = await res.json();
-          if (!res.ok) {
-            const msg = typeof parsed?.message === "string" ? parsed.message : `Request failed (${res.status})`;
-            throw new Error(msg);
-          }
-          payload = parsed;
-          ok = true;
-          break;
-        } catch (err) {
-          lastErr = err instanceof Error ? err : new Error("Unknown error while loading data.");
-        }
+      const res = await fetch(u.toString(), { cache: "no-store" });
+      const payload = await res.json();
+      if (!res.ok) {
+        const msg = typeof payload?.message === "string" ? payload.message : `Request failed (${res.status})`;
+        throw new Error(msg);
       }
-      if (!ok) {
-        throw lastErr || new Error("Unknown error while loading data.");
-      }
-      const marketRows = Array.isArray(payload)
-        ? payload
-        : (payload as { data?: unknown })?.data;
-      if (!Array.isArray(marketRows)) {
+      if (!Array.isArray(payload)) {
         throw new Error("API response was not an array.");
       }
-      const typed = marketRows as SuspiciousRow[];
-      setRows(typed);
-      setLastUpdated(typed[0]?._file_updated_at || new Date().toISOString());
+      setRows(payload as SuspiciousRow[]);
+      setLastUpdated(new Date().toISOString());
     } catch (err) {
       setRows([]);
       setError(err instanceof Error ? err.message : "Unknown error while loading data.");
@@ -175,7 +85,7 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, windowKey]);
+  }, [apiBaseUrl, limit, mode, windowKey]);
 
   useEffect(() => {
     loadRows();
@@ -189,38 +99,43 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
     return () => clearInterval(t);
   }, [loadRows, refreshSeconds]);
 
-  useEffect(() => {
-    setVisibleCount(DEFAULT_VISIBLE_COUNT);
-  }, [dedupeTitles, minLeaderScore, minRecentVolume, search, windowKey]);
-
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const minScore = minLeaderScore.trim() === "" ? null : Number(minLeaderScore);
-    const minVolume = minRecentVolume.trim() === "" ? null : Number(minRecentVolume);
+    const minAmount = minBetAmount.trim() === "" ? null : Number(minBetAmount);
+    const maxAmount = maxBetAmount.trim() === "" ? null : Number(maxBetAmount);
+
     let next = rows;
     if (q) {
       next = next.filter((r) => (r.market_title || "").toLowerCase().includes(q));
     }
-    if (minScore !== null && Number.isFinite(minScore)) {
-      next = next.filter((r) => (r.leader_score ?? Number.NEGATIVE_INFINITY) >= minScore);
+
+    if (minAmount !== null && Number.isFinite(minAmount)) {
+      next = next.filter((r) => (r.trade_size ?? Number.NEGATIVE_INFINITY) >= minAmount);
     }
-    if (minVolume !== null && Number.isFinite(minVolume)) {
-      next = next.filter((r) => (r.recent_volume ?? Number.NEGATIVE_INFINITY) >= minVolume);
+
+    if (maxAmount !== null && Number.isFinite(maxAmount)) {
+      next = next.filter((r) => (r.trade_size ?? Number.POSITIVE_INFINITY) <= maxAmount);
+    }
+
+    // Defensive client-side filter, even though API already applies a coarse band filter.
+    if (mode === "INVESTIGATE_ONLY") {
+      next = next.filter((r) => (r.band || "").toUpperCase() === "INVESTIGATE");
+    } else if (mode === "WATCHLIST_PLUS") {
+      next = next.filter((r) => {
+        const b = (r.band || "").toUpperCase();
+        return b === "INVESTIGATE" || b === "WATCHLIST" || b === "WATCHLIST_QUOTA";
+      });
     }
 
     next = [...next].sort((a, b) => {
-      const ar = a.leader_score ?? Number.NEGATIVE_INFINITY;
-      const br = b.leader_score ?? Number.NEGATIVE_INFINITY;
-      return br - ar;
+      const ar = a.risk_score ?? Number.NEGATIVE_INFINITY;
+      const br = b.risk_score ?? Number.NEGATIVE_INFINITY;
+      return sortDescending ? br - ar : ar - br;
     });
-    if (dedupeTitles) {
-      next = dedupeSimilarTitles(next);
-    }
     return next;
-  }, [dedupeTitles, minLeaderScore, minRecentVolume, rows, search]);
+  }, [maxBetAmount, minBetAmount, mode, rows, search, sortDescending]);
 
-  const visibleRows = filteredRows.slice(0, visibleCount);
-
+  const selectedReasons = parseReasons(selected?.info_susceptibility_reasons);
   const marketUrl = selected ? getPlatformUrl(selected) : null;
   const aiUrl = selected ? getAiIntelUrl(aiIntelBaseUrl, selected) : null;
 
@@ -232,7 +147,7 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Data Tab Replacement</p>
             <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-900">Flagged Bets</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-700">
-              Semi-live feed of leader markets from your price-movement pipeline. Auto-refresh runs every {refreshSeconds}s.
+              Semi-live feed of suspicious trades from your insider-risk pipeline. Auto-refresh runs every {refreshSeconds}s.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
@@ -268,6 +183,60 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
             </div>
           </div>
 
+          <div className="lg:col-span-4">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Band Filter</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setMode("INVESTIGATE_ONLY")}
+                className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+                  mode === "INVESTIGATE_ONLY"
+                    ? "border-rose-300 bg-rose-50 text-rose-800"
+                    : "border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                INVESTIGATE only
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("WATCHLIST_PLUS")}
+                className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+                  mode === "WATCHLIST_PLUS"
+                    ? "border-amber-300 bg-amber-50 text-amber-800"
+                    : "border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                WATCHLIST+
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("INCLUDE_LOW")}
+                className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+                  mode === "INCLUDE_LOW"
+                    ? "border-slate-400 bg-slate-100 text-slate-900"
+                    : "border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                Include LOW
+              </button>
+            </div>
+          </div>
+
+          <div className="lg:col-span-2">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Limit</label>
+            <select
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+            >
+              {LIMIT_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  Top {option}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="lg:col-span-3">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Search Title</label>
             <input
@@ -277,41 +246,40 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400"
             />
           </div>
-          <div className="lg:col-span-2">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Min Leader Score</label>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-12">
+          <div className="lg:col-span-3">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Min Bet Amount</label>
             <input
-              value={minLeaderScore}
-              onChange={(e) => setMinLeaderScore(e.target.value)}
-              placeholder="e.g. 1.5"
+              value={minBetAmount}
+              onChange={(e) => setMinBetAmount(e.target.value)}
+              placeholder="e.g. 50"
               inputMode="decimal"
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400"
             />
           </div>
-          <div className="lg:col-span-2">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Min Volume</label>
+          <div className="lg:col-span-3">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Max Bet Amount</label>
             <input
-              value={minRecentVolume}
-              onChange={(e) => setMinRecentVolume(e.target.value)}
-              placeholder="e.g. 1000"
+              value={maxBetAmount}
+              onChange={(e) => setMaxBetAmount(e.target.value)}
+              placeholder="e.g. 5000"
               inputMode="decimal"
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400"
             />
-          </div>
-          <div className="flex items-end lg:col-span-2">
-            <label className="flex h-[38px] w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={dedupeTitles}
-                onChange={(e) => setDedupeTitles(e.target.checked)}
-                className="h-4 w-4"
-              />
-              Dedupe titles
-            </label>
           </div>
         </div>
 
         <div className="mt-5 flex items-center gap-4 text-xs text-slate-600">
-          <span>{loading ? "Loading..." : `${visibleRows.length} of ${filteredRows.length} rows`}</span>
+          <span>{loading ? "Loading..." : `${filteredRows.length} rows`}</span>
+          <button
+            type="button"
+            onClick={() => setSortDescending((x) => !x)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1"
+          >
+            Sort risk: {sortDescending ? "Desc" : "Asc"}
+          </button>
           {error ? <span className="font-medium text-rose-700">{error}</span> : null}
         </div>
       </section>
@@ -321,50 +289,43 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-[0.14em] text-slate-500">
               <tr>
-                <th className="px-4 py-3">Market</th>
-                <th className="px-4 py-3">Current Price</th>
-                <th className="px-4 py-3">1H Change</th>
-                <th className="px-4 py-3">24H Change</th>
-                <th className="px-4 py-3">Recent Volume</th>
+                <th className="px-4 py-3">Risk</th>
+                <th className="px-4 py-3">Band</th>
                 <th className="px-4 py-3">Platform</th>
+                <th className="px-4 py-3">Market</th>
+                <th className="px-4 py-3">Bet Amount</th>
+                <th className="px-4 py-3">Timestamp</th>
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((row, idx) => (
+              {filteredRows.map((row, idx) => (
                 <tr
-                  key={`${row.market_id || "na"}-${row.ts || row.latest_ts || "na"}-${idx}`}
+                  key={`${row.market_id || "na"}-${row.ts || "na"}-${idx}`}
                   onClick={() => setSelected(row)}
                   className="cursor-pointer border-t border-slate-100 hover:bg-emerald-50/50"
                 >
-                  <td className="max-w-[520px] truncate px-4 py-3 text-slate-800">{row.market_title || "--"}</td>
-                  <td className="px-4 py-3 font-semibold text-slate-900">{formatPercent(row.current_price ?? null)}</td>
-                  <td className="px-4 py-3 font-semibold text-slate-900">{formatSignedPercent(row.price_change_1h ?? null)}</td>
-                  <td className="px-4 py-3 font-semibold text-slate-900">{formatSignedPercent(row.price_change_24h ?? null)}</td>
-                  <td className="px-4 py-3 font-mono text-slate-700">{formatAmount(row.recent_volume ?? null)}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-900">{formatPercent(row.risk_score ?? null)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full border px-2 py-1 text-xs font-medium ${bandColor(row.band)}`}>
+                      {row.band || "LOW"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 uppercase text-slate-700">{row.platform || "--"}</td>
+                  <td className="max-w-[520px] truncate px-4 py-3 text-slate-800">{row.market_title || "--"}</td>
+                  <td className="px-4 py-3 font-mono text-slate-700">{formatAmount(row.trade_size ?? null)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">{formatDate(row.ts)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {visibleCount < filteredRows.length ? (
-          <div className="flex justify-center border-t border-slate-100 p-4">
-            <button
-              type="button"
-              onClick={() => setVisibleCount((count) => count + SHOW_MORE_INCREMENT)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Show more
-            </button>
-          </div>
-        ) : null}
       </section>
 
       {selected ? (
         <aside className="fixed inset-y-0 right-0 z-30 w-full max-w-xl border-l border-slate-200 bg-white p-6 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Leader Market Details</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Trade Details</p>
               <h2 className="mt-2 text-xl font-semibold text-slate-900">{selected.market_title || "Untitled market"}</h2>
             </div>
             <button
@@ -377,17 +338,31 @@ export function FlaggedBetsDashboard({ apiBaseUrl, aiIntelBaseUrl, refreshSecond
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Current Price</p><p className="font-semibold">{formatPercent(selected.current_price ?? null)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">1H Change</p><p className="font-semibold">{formatSignedPercent(selected.price_change_1h ?? null)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">24H Change</p><p className="font-semibold">{formatSignedPercent(selected.price_change_24h ?? null)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Recent Volume</p><p className="font-semibold">{formatAmount(selected.recent_volume ?? null)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Platform</p><p className="font-semibold">{selected.platform || "--"}</p></div>
+            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Risk Score</p><p className="font-semibold">{formatPercent(selected.risk_score ?? null)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Raw Risk</p><p className="font-semibold">{formatPercent(selected.raw_risk ?? null)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">p_informed</p><p className="font-semibold">{formatPercent(selected.p_informed ?? null)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Anomaly Score</p><p className="font-semibold">{formatPercent(selected.anomaly_score ?? null)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Info Susceptibility</p><p className="font-semibold">{formatPercent(selected.info_susceptibility_score ?? null)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Band / Quota</p><p className="font-semibold">{selected.band || "LOW"} / {selected.quota_fill ?? 0}</p></div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-slate-200 p-3 text-sm">
+            <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Info Susceptibility Reasons</p>
+            {selectedReasons.length === 0 ? (
+              <p className="mt-2 text-slate-600">--</p>
+            ) : (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-700">
+                {selectedReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="mt-4 space-y-1 text-sm text-slate-700">
             <p><span className="font-semibold">Platform:</span> {selected.platform || "--"}</p>
             <p><span className="font-semibold">Market ID:</span> <span className="font-mono text-xs">{selected.market_id || "--"}</span></p>
-            <p><span className="font-semibold">Timestamp:</span> {formatDate(selected.ts || selected.latest_ts)}</p>
+            <p><span className="font-semibold">Timestamp:</span> {formatDate(selected.ts)}</p>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-2">

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, RefreshCcw, Copy } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,18 +17,25 @@ import {
 
 
 type WindowKey = "24h" | "7d" | "30d";
+type BandMode = "INVESTIGATE_ONLY" | "WATCHLIST_PLUS" | "INCLUDE_LOW";
+type ApiBand = "INVESTIGATE" | "WATCHLIST" | "ALL";
 
 type SuspiciousRow = {
   ts?: string;
-  latest_ts?: string;
   platform?: string;
   market_id?: string;
   market_title?: string;
-  current_price?: number | null;
-  price_change_1h?: number | null;
-  price_change_24h?: number | null;
-  recent_volume?: number | null;
-  leader_score?: number | null;
+  risk_score?: number | null;
+  raw_risk?: number | null;
+  anomaly_score?: number | null;
+  p_informed?: number | null;
+  info_susceptibility_score?: number | null;
+  info_susceptibility_reasons?: string;
+  info_susceptibility_bucket?: string;
+  band?: string;
+  quota_fill?: number | null;
+  trade_size?: number | null;
+  time_to_resolution_hours?: number | null;
   _file_updated_at?: string;
 };
 
@@ -37,32 +45,7 @@ const WINDOW_OPTIONS: Array<{ key: WindowKey; label: string }> = [
   { key: "30d", label: "30D" },
 ];
 
-const DEFAULT_VISIBLE_COUNT = 10;
-const SHOW_MORE_INCREMENT = 10;
-const API_ROW_LIMIT = 1000;
-
-const TITLE_STOP_WORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "at",
-  "be",
-  "before",
-  "by",
-  "for",
-  "from",
-  "in",
-  "is",
-  "of",
-  "on",
-  "or",
-  "than",
-  "the",
-  "to",
-  "will",
-  "with",
-]);
+const LIMIT_OPTIONS = [200, 500, 1000, 2000, 5000];
 
 function parseEnvInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;
@@ -71,20 +54,15 @@ function parseEnvInt(raw: string | undefined, fallback: number): number {
   return Math.floor(n);
 }
 
+function toApiBand(mode: BandMode): ApiBand {
+  if (mode === "INVESTIGATE_ONLY") return "INVESTIGATE";
+  if (mode === "WATCHLIST_PLUS") return "WATCHLIST";
+  return "ALL";
+}
+
 function formatPercent(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return "--";
   return `${(v * 100).toFixed(2)}%`;
-}
-
-function formatSignedPercent(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "--";
-  const sign = v > 0 ? "+" : "";
-  return `${sign}${(v * 100).toFixed(2)}pp`;
-}
-
-function formatAmount(v: number | null | undefined): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "--";
-  return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 function formatDate(v: string | undefined): string {
@@ -94,52 +72,20 @@ function formatDate(v: string | undefined): string {
   return d.toLocaleString();
 }
 
-function titleTokens(title: string | undefined): string[] {
-  return (title || "")
-    .toLowerCase()
-    .replace(/[\u2019']/g, "")
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/\b(?:more|less)\s+than\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\b/g, " ")
-    .replace(/\bbetween\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\s+and\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\b/g, " ")
-    .replace(/\b(?:at\s+least|at\s+most|over|under|above|below)\s+\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?\b/g, " ")
-    .replace(/[<>]=?\s*\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?/g, " ")
-    .replace(/\b(?:by|before|after)\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?\b/g, " ")
-    .replace(/\b(?:by|before|after)\s+gta\s+vi\b/g, " ")
-    .replace(/\b(?:by|before|after)\s+\d{4}\b/g, " ")
-    .replace(/\$?\d+(?:\.\d+)?\s*(?:b|bn|m|mm|million|billion|%|years?)?/g, " ")
-    .replace(/\belections\b/g, "election")
-    .replace(/\bprimaries\b/g, "primary")
-    .replace(/\binvades\b/g, "invade")
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 1 && !TITLE_STOP_WORDS.has(token));
+function formatAmount(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "--";
+  return `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0;
-  let intersection = 0;
-  for (const token of a) {
-    if (b.has(token)) intersection++;
+function parseReasons(raw: string | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.map(String);
+    return [String(parsed)];
+  } catch {
+    return [raw];
   }
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
-function dedupeSimilarTitles(rows: SuspiciousRow[]): SuspiciousRow[] {
-  const groups: Array<{ key: string; tokens: Set<string> }> = [];
-  const out: SuspiciousRow[] = [];
-
-  for (const row of rows) {
-    const tokens = new Set(titleTokens(row.market_title));
-    const key = [...tokens].join(" ");
-    const duplicate = groups.some((group) => key && (group.key === key || jaccardSimilarity(tokens, group.tokens) >= 0.55));
-    if (duplicate) continue;
-    groups.push({ key: key || row.market_id || String(out.length), tokens });
-    out.push(row);
-  }
-
-  return out;
 }
 
 function slugify(title: string): string {
@@ -184,11 +130,20 @@ function buildAiIntelUrl(baseUrl: string, row: SuspiciousRow): string | null {
     u.searchParams.set("platform", row.platform || "");
     u.searchParams.set("market_id", row.market_id || "");
     u.searchParams.set("title", row.market_title || "");
-    u.searchParams.set("leader_score", String(row.leader_score ?? ""));
+    u.searchParams.set("risk", String(row.risk_score ?? ""));
     return u.toString();
   } catch {
     return null;
   }
+}
+
+function matchesBandMode(row: SuspiciousRow, mode: BandMode): boolean {
+  const band = (row.band || "LOW").toUpperCase();
+  if (mode === "INVESTIGATE_ONLY") return band === "INVESTIGATE";
+  if (mode === "WATCHLIST_PLUS") {
+    return band === "INVESTIGATE" || band === "WATCHLIST" || band === "WATCHLIST_QUOTA";
+  }
+  return true;
 }
 
 export function FlaggedBetsFeed() {
@@ -200,11 +155,12 @@ export function FlaggedBetsFeed() {
   );
 
   const [windowKey, setWindowKey] = useState<WindowKey>("24h");
-  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_COUNT);
+  const [bandMode, setBandMode] = useState<BandMode>("WATCHLIST_PLUS");
+  const [limit, setLimit] = useState<number>(200);
   const [search, setSearch] = useState("");
-  const [minLeaderScore, setMinLeaderScore] = useState("");
-  const [minRecentVolume, setMinRecentVolume] = useState("");
-  const [dedupeTitles, setDedupeTitles] = useState(false);
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [sortDesc, setSortDesc] = useState(true);
 
   const [rows, setRows] = useState<SuspiciousRow[]>([]);
   const [selected, setSelected] = useState<SuspiciousRow | null>(null);
@@ -216,16 +172,18 @@ export function FlaggedBetsFeed() {
     setLoading(true);
     setError("");
 
+    const band = toApiBand(bandMode);
     const makeUrl = (base: string | null): string => {
       const params = new URLSearchParams();
       params.set("window", windowKey);
-      params.set("limit", String(API_ROW_LIMIT));
+      params.set("band", band);
+      params.set("limit", String(limit));
       if (base && base.trim()) {
-        const u = new URL(`${base.replace(/\/$/, "")}/api/suspicious-markets`);
+        const u = new URL(`${base.replace(/\/$/, "")}/api/suspicious`);
         u.search = params.toString();
         return u.toString();
       }
-      return `/api/suspicious-markets?${params.toString()}`;
+      return `/api/suspicious?${params.toString()}`;
     };
 
     const requestUrls = apiBaseUrl ? [makeUrl(apiBaseUrl), makeUrl(null)] : [makeUrl(null)];
@@ -253,13 +211,10 @@ export function FlaggedBetsFeed() {
       if (!ok) {
         throw lastErr || new Error("Failed to load suspicious feed.");
       }
-      const marketRows = Array.isArray(payload)
-        ? payload
-        : (payload as { data?: unknown })?.data;
-      if (!Array.isArray(marketRows)) {
+      if (!Array.isArray(payload)) {
         throw new Error("API response was not an array.");
       }
-      const typed = marketRows as SuspiciousRow[];
+      const typed = payload as SuspiciousRow[];
       setRows(typed);
       setLastUpdated(typed[0]?._file_updated_at || new Date().toISOString());
     } catch (e) {
@@ -269,15 +224,11 @@ export function FlaggedBetsFeed() {
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, windowKey]);
+  }, [apiBaseUrl, bandMode, limit, windowKey]);
 
   useEffect(() => {
     loadRows();
   }, [loadRows]);
-
-  useEffect(() => {
-    setVisibleCount(DEFAULT_VISIBLE_COUNT);
-  }, [dedupeTitles, minLeaderScore, minRecentVolume, search, windowKey]);
 
   useEffect(() => {
     const ms = Math.max(10, refreshSeconds) * 1000;
@@ -289,35 +240,33 @@ export function FlaggedBetsFeed() {
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const minScore = minLeaderScore.trim() === "" ? null : Number(minLeaderScore);
-    const minVolume = minRecentVolume.trim() === "" ? null : Number(minRecentVolume);
-    let next = rows;
+    const min = minAmount.trim() === "" ? null : Number(minAmount);
+    const max = maxAmount.trim() === "" ? null : Number(maxAmount);
+
+    let next = rows.filter((row) => matchesBandMode(row, bandMode));
 
     if (q) {
       next = next.filter((r) => (r.market_title || "").toLowerCase().includes(q));
     }
-    if (minScore !== null && Number.isFinite(minScore)) {
-      next = next.filter((r) => (r.leader_score ?? Number.NEGATIVE_INFINITY) >= minScore);
+
+    if (min !== null && Number.isFinite(min)) {
+      next = next.filter((r) => (r.trade_size ?? Number.NEGATIVE_INFINITY) >= min);
     }
-    if (minVolume !== null && Number.isFinite(minVolume)) {
-      next = next.filter((r) => (r.recent_volume ?? Number.NEGATIVE_INFINITY) >= minVolume);
+
+    if (max !== null && Number.isFinite(max)) {
+      next = next.filter((r) => (r.trade_size ?? Number.POSITIVE_INFINITY) <= max);
     }
 
     next = [...next].sort((a, b) => {
-      const ar = a.leader_score ?? Number.NEGATIVE_INFINITY;
-      const br = b.leader_score ?? Number.NEGATIVE_INFINITY;
-      return br - ar;
+      const ar = a.risk_score ?? Number.NEGATIVE_INFINITY;
+      const br = b.risk_score ?? Number.NEGATIVE_INFINITY;
+      return sortDesc ? br - ar : ar - br;
     });
 
-    if (dedupeTitles) {
-      next = dedupeSimilarTitles(next);
-    }
-
     return next;
-  }, [dedupeTitles, minLeaderScore, minRecentVolume, rows, search]);
+  }, [rows, bandMode, search, minAmount, maxAmount, sortDesc]);
 
-  const visibleRows = filteredRows.slice(0, visibleCount);
-
+  const reasons = parseReasons(selected?.info_susceptibility_reasons);
   const marketUrl = selected ? buildPlatformUrl(selected) : null;
   const aiIntelUrl = selected ? buildAiIntelUrl(aiIntelBaseUrl, selected) : null;
 
@@ -336,7 +285,7 @@ export function FlaggedBetsFeed() {
                   Built with the proprietary Vardr Model, this is the first model that attempts to classify insider trading activity in Kalshi.
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  Vardr ranks leader markets by recent price movement weighted by market activity.
+                  Vardr combines anomaly detection, informed-trader probability modeling, and context-aware plausibility scoring into a unified risk ranking for each trade.
                 </p>
               </div>
               <Button variant="outline" size="sm" className="gap-2" onClick={loadRows}>
@@ -356,6 +305,27 @@ export function FlaggedBetsFeed() {
                 </Button>
               ))}
 
+              <Button
+                variant={bandMode === "INVESTIGATE_ONLY" ? "destructive" : "outline"}
+                size="sm"
+                onClick={() => setBandMode("INVESTIGATE_ONLY")}
+              >
+                INVESTIGATE only
+              </Button>
+              <Button
+                variant={bandMode === "WATCHLIST_PLUS" ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => setBandMode("WATCHLIST_PLUS")}
+              >
+                WATCHLIST+
+              </Button>
+              <Button
+                variant={bandMode === "INCLUDE_LOW" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setBandMode("INCLUDE_LOW")}
+              >
+                Include LOW
+              </Button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
@@ -366,30 +336,35 @@ export function FlaggedBetsFeed() {
                 className="md:col-span-2"
               />
               <Input
-                value={minLeaderScore}
-                onChange={(e) => setMinLeaderScore(e.target.value)}
-                placeholder="Min leader score"
+                value={minAmount}
+                onChange={(e) => setMinAmount(e.target.value)}
+                placeholder="Min bet amount"
                 inputMode="decimal"
               />
               <Input
-                value={minRecentVolume}
-                onChange={(e) => setMinRecentVolume(e.target.value)}
-                placeholder="Min recent volume"
+                value={maxAmount}
+                onChange={(e) => setMaxAmount(e.target.value)}
+                placeholder="Max bet amount"
                 inputMode="decimal"
               />
-              <label className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={dedupeTitles}
-                  onChange={(e) => setDedupeTitles(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                Dedupe titles
-              </label>
+              <select
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                {LIMIT_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    Top {n}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span>{loading ? "Loading..." : `${visibleRows.length} of ${filteredRows.length} rows`}</span>
+              <span>{loading ? "Loading..." : `${filteredRows.length} rows`}</span>
+              <Button variant="ghost" size="sm" onClick={() => setSortDesc((v) => !v)}>
+                Sort risk: {sortDesc ? "Desc" : "Asc"}
+              </Button>
               {error ? <span className="text-destructive">{error}</span> : null}
             </div>
           </div>
@@ -400,43 +375,36 @@ export function FlaggedBetsFeed() {
             <table className="min-w-full text-left text-sm">
               <thead className="bg-card/60 text-[10px] uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2">Market</th>
-                  <th className="px-3 py-2">Current Price</th>
-                  <th className="px-3 py-2">1H Change</th>
-                  <th className="px-3 py-2">24H Change</th>
-                  <th className="px-3 py-2">Recent Volume</th>
+                  <th className="px-3 py-2">Risk Score</th>
+                  <th className="px-3 py-2">Band</th>
                   <th className="px-3 py-2">Platform</th>
+                  <th className="px-3 py-2">Market</th>
+                  <th className="px-3 py-2">Bet Amount</th>
+                  <th className="px-3 py-2">Timestamp</th>
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row, idx) => (
+                {filteredRows.map((row, idx) => (
                   <tr
-                    key={`${row.market_id || "na"}-${row.ts || row.latest_ts || "na"}-${idx}`}
+                    key={`${row.market_id || "na"}-${row.ts || "na"}-${idx}`}
                     className="cursor-pointer border-t border-border/30 hover:bg-primary/5"
                     onClick={() => setSelected(row)}
                   >
-                    <td className="max-w-[520px] truncate px-3 py-2">{row.market_title || "--"}</td>
-                    <td className="px-3 py-2 font-semibold">{formatPercent(row.current_price)}</td>
-                    <td className="px-3 py-2 font-semibold">{formatSignedPercent(row.price_change_1h)}</td>
-                    <td className="px-3 py-2 font-semibold">{formatSignedPercent(row.price_change_24h)}</td>
-                    <td className="px-3 py-2 font-mono">{formatAmount(row.recent_volume)}</td>
+                    <td className="px-3 py-2 font-semibold">{formatPercent(row.risk_score)}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant={(row.band || "").toUpperCase() === "INVESTIGATE" ? "destructive" : "outline"}>
+                        {row.band || "LOW"}
+                      </Badge>
+                    </td>
                     <td className="px-3 py-2 uppercase text-xs">{row.platform || "--"}</td>
+                    <td className="max-w-[380px] truncate px-3 py-2">{row.market_title || "--"}</td>
+                    <td className="px-3 py-2 font-mono">{formatAmount(row.trade_size)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{formatDate(row.ts)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {visibleCount < filteredRows.length ? (
-            <div className="mt-4 flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setVisibleCount((count) => count + SHOW_MORE_INCREMENT)}
-              >
-                Show more
-              </Button>
-            </div>
-          ) : null}
         </CardContent>
       </Card>
 
@@ -452,14 +420,31 @@ export function FlaggedBetsFeed() {
               </SheetHeader>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                <div><span className="text-muted-foreground">current_price:</span> {formatPercent(selected.current_price)}</div>
-                <div><span className="text-muted-foreground">price_change_1h:</span> {formatSignedPercent(selected.price_change_1h)}</div>
-                <div><span className="text-muted-foreground">price_change_24h:</span> {formatSignedPercent(selected.price_change_24h)}</div>
-                <div><span className="text-muted-foreground">recent_volume:</span> {formatAmount(selected.recent_volume)}</div>
-                <div><span className="text-muted-foreground">leader_score:</span> {formatAmount(selected.leader_score)}</div>
-                <div><span className="text-muted-foreground">platform:</span> {selected.platform || "--"}</div>
+                <div><span className="text-muted-foreground">risk_score (final):</span> {formatPercent(selected.risk_score)}</div>
+                <div><span className="text-muted-foreground">raw_risk:</span> {formatPercent(selected.raw_risk)}</div>
+                <div><span className="text-muted-foreground">p_informed:</span> {formatPercent(selected.p_informed)}</div>
+                <div><span className="text-muted-foreground">anomaly_score:</span> {formatPercent(selected.anomaly_score)}</div>
+                <div><span className="text-muted-foreground">info_susceptibility_score:</span> {formatPercent(selected.info_susceptibility_score)}</div>
+                <div><span className="text-muted-foreground">band:</span> {selected.band || "LOW"}</div>
+                <div><span className="text-muted-foreground">quota_fill:</span> {selected.quota_fill ?? 0}</div>
                 <div><span className="text-muted-foreground">market_id:</span> {selected.market_id || "--"}</div>
-                <div><span className="text-muted-foreground">timestamp:</span> {formatDate(selected.ts || selected.latest_ts)}</div>
+                <div><span className="text-muted-foreground">timestamp:</span> {formatDate(selected.ts)}</div>
+                <div><span className="text-muted-foreground">bet_amount:</span> {formatAmount(selected.trade_size)}</div>
+              </div>
+
+              <div>
+                <div className="text-xs uppercase font-bold tracking-wider text-muted-foreground mb-1">
+                  info_susceptibility_reasons
+                </div>
+                {reasons.length ? (
+                  <ul className="list-disc pl-5 text-xs space-y-1">
+                    {reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground">--</p>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2 pt-2">
